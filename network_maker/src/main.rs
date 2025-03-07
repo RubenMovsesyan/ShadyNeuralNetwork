@@ -22,4 +22,11 @@ fn main() {
         "Outputs: {:#?}",
         neural_net.feed_forward(vec![0.1, 0.2, 0.3, -1.0, -2.0, -3.0])
     );
+
+    println!(
+        "Cost: {}",
+        neural_net
+            .get_cost(vec![0.3, 0.4])
+            .expect("Could Not Get Cost")
+    );
 }

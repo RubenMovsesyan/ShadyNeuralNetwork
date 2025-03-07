@@ -55,7 +55,9 @@ impl InputLayer {
             }],
         }));
 
-        let shader = device.create_shader_module(include_wgsl!("../shaders/input_layer.wgsl"));
+        let shader = device.create_shader_module(include_wgsl!(
+            "../shaders/input_layer/input_layer_feed_forward.wgsl"
+        ));
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Input Layer Compute Pipeline Layout"),

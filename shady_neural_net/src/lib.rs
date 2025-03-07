@@ -201,7 +201,16 @@ impl NeuralNet {
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
                 output_layer.recieve(&self.device, &self.queue);
-                Ok(output_layer.get_data(&self.device))
+                Ok(output_layer.get_output(&self.device))
+            }
+            _ => return Err(Box::new(NoHiddenLayersAddedError)),
+        }
+    }
+
+    pub fn get_cost(&self, expected_values: Vec<f32>) -> Result<f32, Box<dyn Error>> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                Ok(output_layer.compute_cost(&expected_values, &self.device, &self.queue))
             }
             _ => return Err(Box::new(NoHiddenLayersAddedError)),
         }

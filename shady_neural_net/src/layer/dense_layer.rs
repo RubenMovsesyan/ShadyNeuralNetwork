@@ -202,8 +202,9 @@ impl DenseLayer {
 
         // Create the pipeline from the bind group layout
         let pipeline = {
-            let shader: ShaderModule =
-                device.create_shader_module(include_wgsl!("../shaders/dense_layer.wgsl"));
+            let shader: ShaderModule = device.create_shader_module(include_wgsl!(
+                "../shaders/dense_layer/dense_layer_feed_forward.wgsl"
+            ));
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Dense Layer Compute Pipeline Layout"),
