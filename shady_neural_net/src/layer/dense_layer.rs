@@ -96,7 +96,7 @@ impl DenseLayer {
             let weights_buffer = {
                 let mut weights = Vec::new();
 
-                for _ in 0..input_connecting_bind_group.buffer_len {
+                for _ in 0..input_connecting_bind_group.num_inputs {
                     for _ in 0..num_nodes {
                         weights.push(rand::random_range(-1.0..=1.0));
                         // weights.push(1.0);
@@ -130,7 +130,7 @@ impl DenseLayer {
             };
 
             let dimensions_buffer = {
-                let dimensions = vec![num_nodes, input_connecting_bind_group.buffer_len];
+                let dimensions = vec![num_nodes, input_connecting_bind_group.num_inputs];
 
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Dimensions Buffer"),
@@ -226,7 +226,7 @@ impl DenseLayer {
         };
 
         Self {
-            num_inputs: input_connecting_bind_group.buffer_len,
+            num_inputs: input_connecting_bind_group.num_inputs,
             num_nodes,
             weights_buffer,
             bias_buffer,

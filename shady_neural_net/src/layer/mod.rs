@@ -40,7 +40,7 @@ pub struct ConnectingBindGroup {
     pub bind_group_layout: Rc<BindGroupLayout>,
     pub bind_group: Rc<BindGroup>,
     pub buffer: Rc<Buffer>,
-    pub buffer_len: u64,
+    pub num_inputs: u64,
 }
 
 #[derive(Debug)]
@@ -58,13 +58,13 @@ impl NeuralNetLayer {
                 bind_group_layout: input_layer.get_connecting_bind_group_layout(),
                 bind_group: input_layer.get_connecting_bind_group(),
                 buffer: input_layer.get_connecting_buffer(),
-                buffer_len: input_layer.num_inputs,
+                num_inputs: input_layer.num_inputs,
             }),
             Dense(dense_layer) => Some(ConnectingBindGroup {
                 bind_group_layout: dense_layer.get_connecting_bind_group_layout(),
                 bind_group: dense_layer.get_connecting_bind_group(),
                 buffer: dense_layer.get_connecting_buffer(),
-                buffer_len: dense_layer.num_nodes,
+                num_inputs: dense_layer.num_nodes,
             }),
             Output(_) => None,
         }

@@ -16,6 +16,8 @@ pub struct OutputLayer {
     num_inputs: u64,
     num_outputs: u64,
 
+    weights_buffer: Buffer,
+    bias_buffer: Buffer,
     buffer: Buffer,
     read_buffer: Buffer,
 
@@ -37,7 +39,7 @@ impl OutputLayer {
         num_outputs: u64,
         device: &Device,
     ) -> Self {
-        let (bind_group_layout, bind_group, buffer, read_buffer) = {
+        let (bind_group_layout, bind_group, weights_buffer, bias_buffer, buffer, read_buffer) = {
             let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Output Layer Bind Group Layout"),
                 entries: &[
@@ -63,6 +65,28 @@ impl OutputLayer {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        // Weights Buffer
+                        binding: 2,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        // Bias Buffer
+                        binding: 3,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -82,13 +106,44 @@ impl OutputLayer {
 
             let dimensions_buffer = {
                 let mut dimensions = Vec::new();
-                dimensions.push(input_connecting_bind_group.buffer_len as u32);
+                dimensions.push(input_connecting_bind_group.num_inputs as u32);
                 dimensions.push(num_outputs as u32);
 
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Dimensions Buffer"),
                     contents: bytemuck::cast_slice(&dimensions),
                     usage: BufferUsages::UNIFORM,
+                })
+            };
+
+            let weights_buffer = {
+                let mut weights = Vec::new();
+                for _ in 0..input_connecting_bind_group.num_inputs {
+                    for _ in 0..num_outputs {
+                        weights.push(rand::random_range(-1.0..=1.0));
+                    }
+                }
+
+                device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Output Layer Weights Buffer"),
+                    contents: bytemuck::cast_slice(&weights),
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                })
+            };
+
+            let bias_buffer = {
+                let mut biases = Vec::new();
+                for _ in 0..num_outputs {
+                    biases.push(Bias::new(
+                        rand::random_range(-1.0..=1.0),
+                        rand::random_range(-1.0..=1.0),
+                    ));
+                }
+
+                device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Output Layer Bias Buffer"),
+                    contents: bytemuck::cast_slice(&biases),
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 })
             };
 
@@ -104,10 +159,25 @@ impl OutputLayer {
                         binding: 1,
                         resource: dimensions_buffer.as_entire_binding(),
                     },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: weights_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: bias_buffer.as_entire_binding(),
+                    },
                 ],
             });
 
-            (bind_group_layout, bind_group, buffer, read_buffer)
+            (
+                bind_group_layout,
+                bind_group,
+                weights_buffer,
+                bias_buffer,
+                buffer,
+                read_buffer,
+            )
         };
 
         // Create the pipeline from the bind group layout
@@ -135,11 +205,13 @@ impl OutputLayer {
         };
 
         Self {
-            num_inputs: input_connecting_bind_group.buffer_len,
+            num_inputs: input_connecting_bind_group.num_inputs,
             num_outputs,
             input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
             input_bind_group: input_connecting_bind_group.bind_group.clone(),
+            weights_buffer,
+            bias_buffer,
             buffer,
             read_buffer,
             bind_group_layout,
