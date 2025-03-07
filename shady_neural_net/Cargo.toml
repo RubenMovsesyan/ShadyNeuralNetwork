@@ -1,0 +1,11 @@
+[package]
+name = "shady_neural_net"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = "1.22.0"
+log = "0.4.26"
+pollster = "0.4.0"
+rand = "0.9.0"
+wgpu = "24.0.1"
