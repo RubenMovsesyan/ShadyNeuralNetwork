@@ -6,8 +6,8 @@ use log::*;
 
 use layer::{DenseLayer, InputLayer, NeuralNetLayer, OutputLayer};
 use wgpu::{
-    Backends, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance,
-    InstanceDescriptor, Limits, PowerPreference, Queue, RequestAdapterOptions,
+    Backends, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
+    PowerPreference, Queue, RequestAdapterOptions,
 };
 
 mod layer;
