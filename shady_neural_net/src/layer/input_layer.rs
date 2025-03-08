@@ -93,6 +93,7 @@ impl InputLayer {
             return Err(InputLengthMismatchError);
         }
 
+		// TODO: Make sure the inputs are normalized before sending them through the neural network
         queue.write_buffer(self.buffer.as_ref(), 0, bytemuck::cast_slice(&inputs));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
