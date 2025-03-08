@@ -1,3 +1,4 @@
+use activation::ActivationFunction;
 #[allow(unused_imports)]
 use log::*;
 
@@ -7,8 +8,8 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
     let mut neural_net = NeuralNet::new().expect("Could not initialize Neural Net");
     neural_net
         .add_input_layer(6)?
-        .add_dense_layer(16)?
-        .add_dense_layer(16)?
+        .add_dense_layer(16, ActivationFunction::Step)?
+        .add_dense_layer(16, ActivationFunction::Step)?
         .add_output_layer(2)?;
 
     Ok(neural_net)

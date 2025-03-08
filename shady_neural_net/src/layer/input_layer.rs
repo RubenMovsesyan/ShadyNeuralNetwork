@@ -85,7 +85,7 @@ impl InputLayer {
 
     pub fn set_inputs(
         &self,
-        inputs: Vec<f32>,
+        mut inputs: Vec<f32>,
         device: &Device,
         queue: &Queue,
     ) -> Result<(), InputLengthMismatchError> {
@@ -93,7 +93,12 @@ impl InputLayer {
             return Err(InputLengthMismatchError);
         }
 
-		// TODO: Make sure the inputs are normalized before sending them through the neural network
+        // Normalize the inputs before sending them through
+        {
+            let avg = inputs.iter().sum::<f32>() / inputs.len() as f32;
+            inputs = inputs.iter_mut().map(|value| *value / avg).collect();
+        }
+
         queue.write_buffer(self.buffer.as_ref(), 0, bytemuck::cast_slice(&inputs));
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {

@@ -37,6 +37,23 @@ fn output_layer_main(
         sum += bias_buffer[row].bias * bias_buffer[row].bias_weight;
 
         output_buffer[row] = sum;
+
+
+        // run the softmax here
+        var max_val: f32 = -1e30;
+        for (var i = 0u; i < m; i++) {
+            max_val = max(max_val, output_buffer[i]);
+        }
+
+        output_buffer[row] = exp(output_buffer[row] - max_val);
+        
+        var exp_sum: f32 = 0.0;
+        for (var i = 0u; i < m; i++) {
+            exp_sum += output_buffer[i];
+        }
+
+
+        output_buffer[row] /= exp_sum;
     }
 
     workgroupBarrier();

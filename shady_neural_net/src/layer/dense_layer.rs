@@ -1,6 +1,10 @@
 use std::rc::Rc;
 
-use super::{ConnectingBindGroup, Layer, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
+use super::{
+    ConnectingBindGroup, Layer, WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias,
+    compute_workgroup_size,
+};
+use bytemuck::{Pod, Zeroable};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
@@ -16,6 +20,7 @@ use wgpu::{
 pub struct DenseLayer {
     pub num_nodes: u64,
     num_inputs: u64,
+    activation_function: ActivationFunction,
 
     weights_buffer: Buffer,
     bias_buffer: Buffer,
@@ -40,6 +45,7 @@ impl DenseLayer {
     pub fn new(
         input_connecting_bind_group: &ConnectingBindGroup,
         num_nodes: u64,
+        activation_function: ActivationFunction,
         device: &Device,
     ) -> Self {
         let (
@@ -87,6 +93,17 @@ impl DenseLayer {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        // Activation Function
+                        binding: 3,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -99,7 +116,6 @@ impl DenseLayer {
                 for _ in 0..input_connecting_bind_group.num_inputs {
                     for _ in 0..num_nodes {
                         weights.push(rand::random_range(-1.0..=1.0));
-                        // weights.push(1.0);
                     }
                 }
 
@@ -118,7 +134,6 @@ impl DenseLayer {
                     biases.push(Bias::new(
                         rand::random_range(-1.0..=1.0),
                         rand::random_range(-1.0..=1.0),
-                        // 0.0, 0.0,
                     ));
                 }
 
@@ -139,6 +154,56 @@ impl DenseLayer {
                 })
             };
 
+            let activation_function_buffer = {
+                use ActivationFunction::*;
+
+                #[repr(C)]
+                #[derive(Debug, Pod, Zeroable, Copy, Clone)]
+                struct ActivationFunctionRepresentation {
+                    function_type: u32,
+                    function_parameter: f32,
+                }
+
+                // Create a struct of data to send to the GPU that contains
+                // The information needed for the activation function
+                let data = match activation_function {
+                    Step => ActivationFunctionRepresentation {
+                        function_type: 0,
+                        function_parameter: 0.0,
+                    },
+                    Threshold(threshold_function) => ActivationFunctionRepresentation {
+                        function_type: 1,
+                        function_parameter: threshold_function.threshold_value,
+                    },
+                    BinarySigmoid(binary_sigmoid_function) => ActivationFunctionRepresentation {
+                        function_type: 2,
+                        function_parameter: binary_sigmoid_function.k,
+                    },
+                    BipolarSigmoid(bipolar_sigmoid_function) => ActivationFunctionRepresentation {
+                        function_type: 3,
+                        function_parameter: bipolar_sigmoid_function.k,
+                    },
+                    ReLU => ActivationFunctionRepresentation {
+                        function_type: 4,
+                        function_parameter: 0.0,
+                    },
+                    LeakyReLU(leaky_relu_function) => ActivationFunctionRepresentation {
+                        function_type: 5,
+                        function_parameter: leaky_relu_function.a,
+                    },
+                    HyperbolicTangent => ActivationFunctionRepresentation {
+                        function_type: 6,
+                        function_parameter: 0.0,
+                    },
+                };
+
+                device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Dense Layer Activation Function Uniform Buffer"),
+                    contents: bytemuck::cast_slice(&[data]),
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                })
+            };
+
             let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("Dense Layer Bind Group"),
                 layout: &bind_group_layout,
@@ -154,6 +219,10 @@ impl DenseLayer {
                     BindGroupEntry {
                         binding: 2,
                         resource: dimensions_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: activation_function_buffer.as_entire_binding(),
                     },
                 ],
             });
@@ -229,6 +298,7 @@ impl DenseLayer {
         Self {
             num_inputs: input_connecting_bind_group.num_inputs,
             num_nodes,
+            activation_function,
             weights_buffer,
             bias_buffer,
             input_buffer: input_connecting_bind_group.buffer.clone(),

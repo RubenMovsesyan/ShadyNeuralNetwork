@@ -6,7 +6,7 @@ use wgpu::{
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor,
     Device, Maintain, MapMode, PipelineCompilationOptions, PipelineLayoutDescriptor, Queue,
-    ShaderModule, ShaderStages, include_wgsl,
+    ShaderStages, include_wgsl,
     util::{BufferInitDescriptor, DeviceExt},
 };
 

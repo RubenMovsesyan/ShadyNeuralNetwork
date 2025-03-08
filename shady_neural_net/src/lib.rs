@@ -1,3 +1,4 @@
+use layer_structs::activation::ActivationFunction;
 use pollster::*;
 use std::{error::Error, fmt::Display};
 
@@ -9,6 +10,8 @@ use wgpu::{
     Backends, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
     PowerPreference, Queue, RequestAdapterOptions,
 };
+
+pub use layer_structs::activation;
 
 mod layer;
 mod layer_structs;
@@ -134,7 +137,11 @@ impl NeuralNet {
         Ok(self)
     }
 
-    pub fn add_dense_layer(&mut self, num_nodes: u64) -> Result<&mut Self, Box<dyn Error>> {
+    pub fn add_dense_layer(
+        &mut self,
+        num_nodes: u64,
+        activation_function: ActivationFunction,
+    ) -> Result<&mut Self, Box<dyn Error>> {
         if let None = self.input_layer {
             return Err(Box::new(NoInputLayerAddedError));
         }
@@ -156,6 +163,7 @@ impl NeuralNet {
             .push(NeuralNetLayer::Dense(DenseLayer::new(
                 &connecting_buffer,
                 num_nodes,
+                activation_function,
                 &self.device,
             )));
 
