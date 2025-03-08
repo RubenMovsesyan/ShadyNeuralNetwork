@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::utils::{print_buffer, read_buffer};
+
 use super::{
     ConnectingBindGroup, Layer, WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias,
     compute_workgroup_size,
@@ -111,7 +113,7 @@ impl DenseLayer {
             // containts a matrix with num_nodes sets of weights
             // each with num_inputs weights in them
             let weights_buffer = {
-                let mut weights = Vec::new();
+                let mut weights: Vec<f32> = Vec::new();
 
                 for _ in 0..input_connecting_bind_group.num_inputs {
                     for _ in 0..num_nodes {
@@ -318,6 +320,13 @@ impl DenseLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
+        let before = read_buffer(
+            &self.input_buffer,
+            self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         // Run the pipeline
         {
             let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
@@ -340,10 +349,20 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let after = read_buffer(
+            &self.output_buffer,
+            self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         encoder.insert_debug_marker("Sync Point: Input Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+
+        print_buffer(&before, device, "Dense Input");
+        print_buffer(&after, device, "Dense Output");
     }
 }
 

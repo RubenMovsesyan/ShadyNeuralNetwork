@@ -15,6 +15,7 @@ pub use layer_structs::activation;
 
 mod layer;
 mod layer_structs;
+mod utils;
 
 // Error Structs
 #[derive(Debug)]
@@ -215,7 +216,16 @@ impl NeuralNet {
         }
     }
 
-    pub fn get_cost(&self, expected_values: Vec<f32>) -> Result<f32, Box<dyn Error>> {
+    pub fn get_cost(&self, mut expected_values: Vec<f32>) -> Result<f32, Box<dyn Error>> {
+        // Normalize the input vector
+        {
+            let avg = expected_values.iter().sum::<f32>() / expected_values.len() as f32;
+            expected_values = expected_values
+                .iter_mut()
+                .map(|value| *value / avg)
+                .collect();
+        }
+
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
                 Ok(output_layer.compute_cost(&expected_values, &self.device, &self.queue))

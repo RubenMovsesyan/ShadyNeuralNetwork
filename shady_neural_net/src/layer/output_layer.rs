@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::utils::{print_buffer, read_buffer};
+
 use super::{ConnectingBindGroup, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
@@ -131,7 +133,7 @@ impl OutputLayer {
             };
 
             let weights_buffer = {
-                let mut weights = Vec::new();
+                let mut weights: Vec<f32> = Vec::new();
                 for _ in 0..input_connecting_bind_group.num_inputs {
                     for _ in 0..num_outputs {
                         weights.push(rand::random_range(-1.0..=1.0));
@@ -141,7 +143,7 @@ impl OutputLayer {
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Weights Buffer"),
                     contents: bytemuck::cast_slice(&weights),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                 })
             };
 
@@ -157,7 +159,7 @@ impl OutputLayer {
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Bias Buffer"),
                     contents: bytemuck::cast_slice(&biases),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                 })
             };
 
@@ -356,6 +358,26 @@ impl OutputLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
+        let before = read_buffer(
+            &self.input_buffer,
+            self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        let weights = read_buffer(
+            &self.weights_buffer,
+            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+        let biases = read_buffer(
+            &self.bias_buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64 * 2,
+            device,
+            &mut encoder,
+        );
+
         // Run the pipeline
         {
             let dispatch_size = compute_workgroup_size(self.num_outputs as u32, WORK_GROUP_SIZE);
@@ -377,6 +399,13 @@ impl OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let after = read_buffer(
+            &self.buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         encoder.insert_debug_marker("Sync Point: Ouptut Feed Forward Pipeline Finished");
         device.poll(Maintain::Wait);
 
@@ -389,6 +418,11 @@ impl OutputLayer {
         );
 
         queue.submit(Some(encoder.finish()));
+
+        print_buffer(&weights, device, "Output layer weights");
+        print_buffer(&biases, device, "Output layer biases");
+        print_buffer(&before, device, "Output layer inputs");
+        print_buffer(&after, device, "Output layer outputs");
     }
 
     pub fn compute_cost(&self, expected_values: &[f32], device: &Device, queue: &Queue) -> f32 {

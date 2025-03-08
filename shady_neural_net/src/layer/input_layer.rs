@@ -8,6 +8,8 @@ use wgpu::{
     include_wgsl,
 };
 
+use crate::utils::{print_buffer, read_buffer};
+
 use super::{Layer, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError};
 
 /// Input Layer struct used in neural net layer
@@ -99,11 +101,11 @@ impl InputLayer {
             inputs = inputs.iter_mut().map(|value| *value / avg).collect();
         }
 
-        queue.write_buffer(self.buffer.as_ref(), 0, bytemuck::cast_slice(&inputs));
-
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Input Layer Command Encoder"),
         });
+
+        queue.write_buffer(self.buffer.as_ref(), 0, bytemuck::cast_slice(&inputs));
 
         // Run the pipeline
         {
@@ -125,8 +127,18 @@ impl InputLayer {
         }
 
         encoder.insert_debug_marker("Sync Point: Input Pipeline Finished");
+
+        let b = read_buffer(
+            &self.buffer,
+            self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         queue.submit(Some(encoder.finish()));
         device.poll(Maintain::Wait);
+
+        print_buffer(&b, device, "Main Input");
 
         Ok(())
     }

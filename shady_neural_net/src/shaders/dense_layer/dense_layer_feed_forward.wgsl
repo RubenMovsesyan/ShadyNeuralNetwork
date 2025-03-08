@@ -27,6 +27,16 @@ var<uniform> activation_function: ActivationFunctionDescriptor;
 var<storage, read_write> output_buffer: array<f32>;
 
 
+// Constants
+const STEP: u32 = 0;
+const THRESHOLD: u32 = 1;
+const BINARY_SIGMOID: u32 = 2;
+const BIPOLAR_SIGMOID: u32 = 3;
+const RELU: u32 = 4;
+const LEAKY_RELU: u32 = 5;
+const HYPERBOLIC_TANGENT: u32 = 6;
+
+
 // Here are the different activation functions
 fn step(x: f32) -> f32 {
     if (x >= 0.0) {
@@ -102,25 +112,25 @@ fn dense_layer_main(
 
         // Run the sum through the activation function
         switch activation_function.function_type {
-            case 0u: {
+            case STEP: {
                 sum = step(sum);
             }
-            case 1u: {
+            case THRESHOLD: {
                 sum = threshold(sum, activation_function.function_parameter);
             }
-            case 2u: {
+            case BINARY_SIGMOID: {
                 sum = binary_sigmoid(sum, activation_function.function_parameter);
             }
-            case 3u: {
+            case BIPOLAR_SIGMOID: {
                 sum = bipolar_sigmoid(sum, activation_function.function_parameter);
             }
-            case 4u: {
+            case RELU: {
                 sum = relu(sum);
             }
-            case 5u: {
+            case LEAKY_RELU: {
                 sum = leaky_relu(sum, activation_function.function_parameter);
             }
-            case 6u: {
+            case HYPERBOLIC_TANGENT: {
                 sum = hyperbolic_tangent(sum);
             }
             default: {
@@ -128,8 +138,30 @@ fn dense_layer_main(
             }
         }
 
-        
+
         output_buffer[row] = sum;
+    }
+
+    // Synchronize workgroups here
+    workgroupBarrier();
+
+    if (row < m) {
+        // Normalize the functions that need to be normalized
+        switch activation_function.function_type {
+            case BINARY_SIGMOID, BIPOLAR_SIGMOID, RELU, LEAKY_RELU: {
+                var length: f32 = 0.0;
+                for (var i = 0u; i < m; i++) {
+                    length += output_buffer[i] * output_buffer[i];
+                }
+
+                length = sqrt(length);
+
+                output_buffer[row] /= length;
+            }
+            default: {}
+        }
+
+        
     }
     
     workgroupBarrier();
