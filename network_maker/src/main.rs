@@ -1,4 +1,4 @@
-use activation::{ActivationFunction, BinarySigmoidFunction};
+use activation::ActivationFunction;
 #[allow(unused_imports)]
 use log::*;
 
@@ -10,11 +10,13 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
         .add_input_layer(6)?
         .add_dense_layer(
             16,
-            ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
+            // ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
+            ActivationFunction::Step,
         )?
         .add_dense_layer(
             16,
-            ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
+            // ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
+            ActivationFunction::Step,
         )?
         .add_output_layer(3)?;
 

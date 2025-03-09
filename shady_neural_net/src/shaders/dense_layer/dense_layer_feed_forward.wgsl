@@ -1,6 +1,8 @@
+// Inputs from the previous layer
 @group(0) @binding(0)
 var<storage, read_write> input_buffer: array<f32>;
 
+// Weights of the current layer
 @group(1) @binding(0)
 var<storage, read> weights_buffer: array<f32>;
 
@@ -9,9 +11,11 @@ struct Bias {
     bias_weight: f32,
 }
 
+// Biases of the current layer
 @group(1) @binding(1)
 var<storage, read> bias_buffer: array<Bias>;
 
+// Dimensions of the weights matrix
 @group(1) @binding(2)
 var<uniform> dims: vec2<u32>;
 
@@ -20,9 +24,17 @@ struct ActivationFunctionDescriptor {
     function_parameter: f32,
 }
 
+// Activation function informaiton
+// The function type
+// and the parameter if necessary
 @group(1) @binding(3)
 var<uniform> activation_function: ActivationFunctionDescriptor;
 
+// Intermediary buffer to be used for back propogation
+@group(1) @binding(4)
+var<storage, read_write> intermediary_buffer: array<f32>;
+
+// Output buffer after the activation function is applied
 @group(2) @binding(0)
 var<storage, read_write> output_buffer: array<f32>;
 
@@ -109,6 +121,10 @@ fn dense_layer_main(
 
         sum += bias_buffer[row].bias * bias_buffer[row].bias_weight;
 
+        // Store the weighted sum in the intermediary buffer to be use
+        // for back propogation before applying the activation function
+        intermediary_buffer[row] = sum;
+
 
         // Run the sum through the activation function
         switch activation_function.function_type {
@@ -142,27 +158,27 @@ fn dense_layer_main(
         output_buffer[row] = sum;
     }
 
-    // Synchronize workgroups here
-    workgroupBarrier();
+    // // Synchronize workgroups here
+    // workgroupBarrier();
 
-    if (row < m) {
-        // Normalize the functions that need to be normalized
-        switch activation_function.function_type {
-            case BINARY_SIGMOID, BIPOLAR_SIGMOID, RELU, LEAKY_RELU: {
-                var length: f32 = 0.0;
-                for (var i = 0u; i < m; i++) {
-                    length += output_buffer[i] * output_buffer[i];
-                }
+    // if (row < m) {
+    //     // Normalize the functions that need to be normalized
+    //     switch activation_function.function_type {
+    //         case BINARY_SIGMOID, BIPOLAR_SIGMOID, RELU, LEAKY_RELU: {
+    //             var length: f32 = 0.0;
+    //             for (var i = 0u; i < m; i++) {
+    //                 length += output_buffer[i] * output_buffer[i];
+    //             }
 
-                length = sqrt(length);
+    //             length = sqrt(length);
 
-                output_buffer[row] /= length;
-            }
-            default: {}
-        }
+    //             output_buffer[row] /= length;
+    //         }
+    //         default: {}
+    //     }
 
         
-    }
+    // }
     
     workgroupBarrier();
 }

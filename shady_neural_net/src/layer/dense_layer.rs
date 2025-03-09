@@ -26,6 +26,7 @@ pub struct DenseLayer {
 
     weights_buffer: Buffer,
     bias_buffer: Buffer,
+    intermediary_buffer: Buffer,
     output_buffer: Rc<Buffer>,
 
     // Bind group information
@@ -57,6 +58,7 @@ impl DenseLayer {
             output_bind_group,
             weights_buffer,
             bias_buffer,
+            intermediary_buffer,
             output_buffer,
         ) = {
             let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -101,6 +103,17 @@ impl DenseLayer {
                         visibility: ShaderStages::COMPUTE,
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        // Intermediary Buffer
+                        binding: 4,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -206,6 +219,13 @@ impl DenseLayer {
                 })
             };
 
+            let intermediary_bufffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Intermediary Buffer"),
+                mapped_at_creation: false,
+                size: num_nodes * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
             let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("Dense Layer Bind Group"),
                 layout: &bind_group_layout,
@@ -225,6 +245,10 @@ impl DenseLayer {
                     BindGroupEntry {
                         binding: 3,
                         resource: activation_function_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: intermediary_bufffer.as_entire_binding(),
                     },
                 ],
             });
@@ -267,6 +291,7 @@ impl DenseLayer {
                 output_bind_group,
                 weights_buffer,
                 bias_buffer,
+                intermediary_bufffer,
                 output_buffer,
             )
         };
@@ -304,6 +329,7 @@ impl DenseLayer {
             weights_buffer,
             bias_buffer,
             input_buffer: input_connecting_bind_group.buffer.clone(),
+            intermediary_buffer,
             output_buffer: Rc::new(output_buffer),
             input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
             input_bind_group: input_connecting_bind_group.bind_group.clone(),
@@ -349,6 +375,13 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let intermediary = read_buffer(
+            &self.intermediary_buffer,
+            self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         let after = read_buffer(
             &self.output_buffer,
             self.num_nodes * std::mem::size_of::<f32>() as u64,
@@ -362,6 +395,7 @@ impl DenseLayer {
         queue.submit(Some(encoder.finish()));
 
         print_buffer(&before, device, "Dense Input");
+        print_buffer(&intermediary, device, "Dense Intermediary");
         print_buffer(&after, device, "Dense Output");
     }
 }

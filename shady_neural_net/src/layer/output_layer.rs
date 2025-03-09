@@ -20,6 +20,7 @@ pub struct OutputLayer {
 
     weights_buffer: Buffer,
     bias_buffer: Buffer,
+    intermediary_buffer: Buffer,
     buffer: Buffer,
 
     // Cost function buffer
@@ -55,7 +56,15 @@ impl OutputLayer {
         device: &Device,
     ) -> Self {
         // Create the main feed forward bind group and buffer information for this layer
-        let (bind_group_layout, bind_group, weights_buffer, bias_buffer, buffer, read_buffer) = {
+        let (
+            bind_group_layout,
+            bind_group,
+            weights_buffer,
+            bias_buffer,
+            intermediary_buffer,
+            buffer,
+            read_buffer,
+        ) = {
             let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Output Layer Bind Group Layout"),
                 entries: &[
@@ -98,6 +107,17 @@ impl OutputLayer {
                         visibility: ShaderStages::COMPUTE,
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        // Intermediary Buffer
+                        binding: 4,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -163,6 +183,13 @@ impl OutputLayer {
                 })
             };
 
+            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Intermediary Buffer"),
+                mapped_at_creation: false,
+                size: num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
             let bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("Output Layer Bind Group"),
                 layout: &bind_group_layout,
@@ -183,6 +210,10 @@ impl OutputLayer {
                         binding: 3,
                         resource: bias_buffer.as_entire_binding(),
                     },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: intermediary_buffer.as_entire_binding(),
+                    },
                 ],
             });
 
@@ -191,6 +222,7 @@ impl OutputLayer {
                 bind_group,
                 weights_buffer,
                 bias_buffer,
+                intermediary_buffer,
                 buffer,
                 read_buffer,
             )
@@ -339,6 +371,7 @@ impl OutputLayer {
             input_bind_group: input_connecting_bind_group.bind_group.clone(),
             weights_buffer,
             bias_buffer,
+            intermediary_buffer,
             buffer,
             read_buffer,
             loss_read_buffer,
@@ -399,6 +432,13 @@ impl OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let intermediary = read_buffer(
+            &self.intermediary_buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         let after = read_buffer(
             &self.buffer,
             self.num_outputs * std::mem::size_of::<f32>() as u64,
@@ -422,6 +462,7 @@ impl OutputLayer {
         print_buffer(&weights, device, "Output layer weights");
         print_buffer(&biases, device, "Output layer biases");
         print_buffer(&before, device, "Output layer inputs");
+        print_buffer(&intermediary, device, "Output layer intermediary");
         print_buffer(&after, device, "Output layer outputs");
     }
 

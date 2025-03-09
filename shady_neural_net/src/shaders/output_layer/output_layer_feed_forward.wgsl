@@ -18,6 +18,9 @@ struct Bias {
 @group(1) @binding(3)
 var<storage, read> bias_buffer: array<Bias>;
 
+@group(1) @binding(4)
+var<storage, read_write> intermediary_buffer: array<f32>;
+
 
 @compute @workgroup_size(256)
 fn output_layer_main(
@@ -36,23 +39,23 @@ fn output_layer_main(
 
         sum += bias_buffer[row].bias * bias_buffer[row].bias_weight;
 
-        output_buffer[row] = sum;
+        // output_buffer[row] = sum;
+        intermediary_buffer[row] = sum;
     }
 
     workgroupBarrier();
 
     
-    var max_val: f32 = output_buffer[0];
+    var max_val: f32 = intermediary_buffer[0];
 
     for (var i = 0u; i < m; i++) {
-        max_val = max(max_val, output_buffer[i]);
+        max_val = max(max_val, intermediary_buffer[i]);
     }
 
     workgroupBarrier();
 
     if (row < m) {
-
-        output_buffer[row] = exp(output_buffer[row] - max_val);
+        output_buffer[row] = exp(intermediary_buffer[row] - max_val);
     }
 
     workgroupBarrier();
