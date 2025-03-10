@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::utils::{print_buffer, read_buffer};
+use crate::utils::{get_buffer, read_buffer};
 
 use super::{
     ConnectingBindGroup, Layer, WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias,
@@ -24,21 +24,31 @@ pub struct DenseLayer {
     num_inputs: u64,
     activation_function: ActivationFunction,
 
+    // Feed forward buffers
     weights_buffer: Buffer,
     bias_buffer: Buffer,
     intermediary_buffer: Buffer,
     output_buffer: Rc<Buffer>,
 
-    // Bind group information
+    // buffers used in back propogation
+    frobenius_norm_buffer: Buffer,
+
+    // Input Bind group information
     input_buffer: Rc<Buffer>,
     input_bind_group_layout: Rc<BindGroupLayout>,
     input_bind_group: Rc<BindGroup>,
 
+    // Feed forward bind group information
     bind_group_layout: BindGroupLayout,
     bind_group: BindGroup,
 
+    // Output bind group information
     output_bind_group_layout: Rc<BindGroupLayout>,
     output_bind_group: Rc<BindGroup>,
+
+    // Back Propogation bind groups
+    back_propogation_bind_group_layout: BindGroupLayout,
+    back_propogation_bind_group: BindGroup,
 
     // GPU pipeline information
     pipeline: ComputePipeline,
@@ -219,7 +229,7 @@ impl DenseLayer {
                 })
             };
 
-            let intermediary_bufffer = device.create_buffer(&BufferDescriptor {
+            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
                 label: Some("Dense Layer Intermediary Buffer"),
                 mapped_at_creation: false,
                 size: num_nodes * std::mem::size_of::<f32>() as u64,
@@ -248,7 +258,7 @@ impl DenseLayer {
                     },
                     BindGroupEntry {
                         binding: 4,
-                        resource: intermediary_bufffer.as_entire_binding(),
+                        resource: intermediary_buffer.as_entire_binding(),
                     },
                 ],
             });
@@ -291,8 +301,51 @@ impl DenseLayer {
                 output_bind_group,
                 weights_buffer,
                 bias_buffer,
-                intermediary_bufffer,
+                intermediary_buffer,
                 output_buffer,
+            )
+        };
+
+        let (
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            frobenius_norm_buffer,
+        ) = {
+            let back_propogation_bind_group_layout =
+                device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: Some("Dense Layer Back Propogation Bind Group Layout"),
+                    entries: &[BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Frobenius Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
+            let back_propogation_bind_group = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("Dense Layer Back Propogation Bind Group"),
+                layout: &back_propogation_bind_group_layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: frobenius_norm_buffer.as_entire_binding(),
+                }],
+            });
+
+            (
+                back_propogation_bind_group_layout,
+                back_propogation_bind_group,
+                frobenius_norm_buffer,
             )
         };
 
@@ -323,20 +376,30 @@ impl DenseLayer {
         };
 
         Self {
-            num_inputs: input_connecting_bind_group.num_inputs,
             num_nodes,
+            num_inputs: input_connecting_bind_group.num_inputs,
             activation_function,
+            // ------------------------------------
             weights_buffer,
             bias_buffer,
-            input_buffer: input_connecting_bind_group.buffer.clone(),
             intermediary_buffer,
             output_buffer: Rc::new(output_buffer),
+            // ------------------------------------
+            frobenius_norm_buffer,
+            // ------------------------------------
+            input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
             input_bind_group: input_connecting_bind_group.bind_group.clone(),
+            // ------------------------------------
             bind_group_layout,
             bind_group,
+            // ------------------------------------
             output_bind_group_layout: Rc::new(output_bind_group_layout),
             output_bind_group: Rc::new(output_bind_group),
+            // ------------------------------------
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            // ------------------------------------
             pipeline,
         }
     }
@@ -345,13 +408,6 @@ impl DenseLayer {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Input Layer Command Encoder"),
         });
-
-        let before = read_buffer(
-            &self.input_buffer,
-            self.num_inputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
 
         // Run the pipeline
         {
@@ -375,28 +431,57 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        let intermediary = read_buffer(
-            &self.intermediary_buffer,
-            self.num_nodes * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-
-        let after = read_buffer(
-            &self.output_buffer,
-            self.num_nodes * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-
         encoder.insert_debug_marker("Sync Point: Input Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+    }
 
-        print_buffer(&before, device, "Dense Input");
-        print_buffer(&intermediary, device, "Dense Intermediary");
-        print_buffer(&after, device, "Dense Output");
+    /// Generates the frobenius norm of the weight matrix
+    /// and stores it in the GPU buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `queue` - wgpu queue reference to write to the frobenius norm buffer
+    ///
+    /// # Returns
+    ///
+    /// `f32` value for the frobenius norm
+    pub fn generate_weights_frobenius_norm(&self, device: &Device, queue: &Queue) -> f32 {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Generate Weight Frobenius Norm Command Encoder"),
+        });
+
+        let weights_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_nodes * self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        // sends the commands to copy the buffer to the gpu
+        queue.submit(Some(encoder.finish()));
+
+        let weights = get_buffer(&weights_buffer, device);
+
+        let frobenius_norm = {
+            // Σ of all squared values in matrix
+            let squared_sum = weights
+                .iter()
+                .map(|weight| f32::powi(f32::abs(*weight), 2))
+                .sum();
+
+            f32::sqrt(squared_sum)
+        };
+
+        // Write the norm to the buffer
+        queue.write_buffer(
+            &self.frobenius_norm_buffer,
+            0,
+            bytemuck::cast_slice(&[frobenius_norm]),
+        );
+
+        frobenius_norm
     }
 }
 

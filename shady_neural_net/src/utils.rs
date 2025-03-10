@@ -1,5 +1,6 @@
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, CommandEncoder, Device, Maintain, MapMode};
 
+#[allow(dead_code)]
 pub fn read_buffer(
     buffer: &Buffer,
     buffer_size: u64,
@@ -18,6 +19,7 @@ pub fn read_buffer(
     read_buffer
 }
 
+#[allow(dead_code)]
 pub fn print_buffer(buffer: &Buffer, device: &Device, name: &str) {
     let slice = buffer.slice(..);
     slice.map_async(MapMode::Read, |_| {});
@@ -33,6 +35,7 @@ pub fn print_buffer(buffer: &Buffer, device: &Device, name: &str) {
     buffer.unmap();
 }
 
+#[allow(dead_code)]
 pub fn get_buffer(buffer: &Buffer, device: &Device) -> Vec<f32> {
     let slice = buffer.slice(..);
     slice.map_async(MapMode::Read, |_| {});

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::utils::{get_buffer, print_buffer, read_buffer};
+use crate::utils::{get_buffer, read_buffer};
 
 use super::{ConnectingBindGroup, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
 use wgpu::{
@@ -467,26 +467,6 @@ impl OutputLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
-        let before = read_buffer(
-            &self.input_buffer,
-            self.num_inputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-
-        let weights = read_buffer(
-            &self.weights_buffer,
-            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-        let biases = read_buffer(
-            &self.bias_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64 * 2,
-            device,
-            &mut encoder,
-        );
-
         // Run the pipeline
         {
             let dispatch_size = compute_workgroup_size(self.num_outputs as u32, WORK_GROUP_SIZE);
@@ -508,20 +488,6 @@ impl OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        let intermediary = read_buffer(
-            &self.intermediary_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-
-        let after = read_buffer(
-            &self.buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-
         encoder.insert_debug_marker("Sync Point: Ouptut Feed Forward Pipeline Finished");
         device.poll(Maintain::Wait);
 
@@ -534,12 +500,6 @@ impl OutputLayer {
         );
 
         queue.submit(Some(encoder.finish()));
-
-        print_buffer(&weights, device, "Output layer weights");
-        print_buffer(&biases, device, "Output layer biases");
-        print_buffer(&before, device, "Output layer inputs");
-        print_buffer(&intermediary, device, "Output layer intermediary");
-        print_buffer(&after, device, "Output layer outputs");
     }
 
     /// Computes the loss of the model based on some expected values
@@ -603,7 +563,6 @@ impl OutputLayer {
         // Get the average of all the loss values
         let loss_vector = self.get_loss(device);
 
-        println!("{:#?}", loss_vector);
         loss_vector.iter().sum::<f32>() / loss_vector.len() as f32
     }
 
@@ -648,6 +607,7 @@ impl OutputLayer {
     }
 
     /// Generates the frobenius norm of the weight matrix
+    /// and stores it in the GPU buffer
     ///
     /// # Arguments
     ///

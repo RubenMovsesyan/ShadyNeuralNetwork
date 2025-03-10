@@ -247,5 +247,17 @@ impl NeuralNet {
             },
             None => {}
         }
+
+        for layer in &self.hidden_layers {
+            match layer {
+                NeuralNetLayer::Dense(dense_layer) => {
+                    let frobenius_norm =
+                        dense_layer.generate_weights_frobenius_norm(&self.device, &self.queue);
+
+                    println!("Frobenius Norm: {}", frobenius_norm);
+                }
+                _ => {}
+            }
+        }
     }
 }
