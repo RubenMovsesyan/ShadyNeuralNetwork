@@ -1,5 +1,6 @@
 use layer_structs::activation::ActivationFunction;
 use pollster::*;
+use regularization::{Regularization, RegularizationFunction};
 use std::{error::Error, fmt::Display};
 
 #[allow(unused_imports)]
@@ -11,7 +12,7 @@ use wgpu::{
     PowerPreference, Queue, RequestAdapterOptions,
 };
 
-pub use layer_structs::activation;
+pub use layer_structs::*;
 
 mod layer;
 mod layer_structs;
@@ -235,28 +236,18 @@ impl NeuralNet {
     }
 
     pub fn back_propogate(&self) {
-        match &self.output_layer {
-            Some(layer) => match layer {
-                NeuralNetLayer::Output(output_layer) => {
-                    let frobenius_norm =
-                        output_layer.generate_weights_frobenius_norm(&self.device, &self.queue);
+        if let Some(layer) = &self.output_layer {
+            if let NeuralNetLayer::Output(output_layer) = layer {
+                let regularization_weights = output_layer.generate_regularization_function(
+                    Regularization {
+                        function: RegularizationFunction::Ridge,
+                        hyper_parameter: 1.0,
+                    },
+                    &self.device,
+                    &self.queue,
+                );
 
-                    println!("Frobenius Norm: {}", frobenius_norm);
-                }
-                _ => {}
-            },
-            None => {}
-        }
-
-        for layer in &self.hidden_layers {
-            match layer {
-                NeuralNetLayer::Dense(dense_layer) => {
-                    let frobenius_norm =
-                        dense_layer.generate_weights_frobenius_norm(&self.device, &self.queue);
-
-                    println!("Frobenius Norm: {}", frobenius_norm);
-                }
-                _ => {}
+                println!("Regularization Weights: {:#?}", regularization_weights);
             }
         }
     }

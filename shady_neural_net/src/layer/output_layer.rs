@@ -1,8 +1,12 @@
 use std::rc::Rc;
 
+use crate::layer::compute_2d_workgroup_size;
+use crate::layer_structs::regularization::*;
 use crate::utils::{get_buffer, read_buffer};
 
+use super::D2_WORK_GROUP_SIZE;
 use super::{ConnectingBindGroup, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
+use bytemuck::{Pod, Zeroable};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
@@ -29,7 +33,9 @@ pub struct OutputLayer {
     expected_values_buffer: Buffer,
 
     // buffers used in back propogation
-    frobenius_norm_buffer: Buffer,
+    norm_buffer: Buffer,
+    regularization_buffer: Buffer,
+    regularization_output_buffer: Buffer,
 
     // Buffer for reading the output values
     read_buffer: Buffer,
@@ -55,6 +61,7 @@ pub struct OutputLayer {
     // GPU Pipeline Information
     feed_forward_pipeline: ComputePipeline,
     loss_function_pipeline: ComputePipeline,
+    regularization_pipeline: ComputePipeline,
 }
 
 impl OutputLayer {
@@ -331,44 +338,98 @@ impl OutputLayer {
         let (
             back_propogation_bind_group_layout,
             back_propogation_bind_group,
-            frobenius_norm_buffer,
+            norm_buffer,
+            regularization_buffer,
+            regularization_output_buffer,
         ) = {
             let back_propogation_bind_group_layout =
                 device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                     label: Some("Output Layer Back Propogation Bind Group Layout"),
-                    entries: &[BindGroupLayoutEntry {
-                        // Frobenius norm buffer
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            // Norm buffer
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        BindGroupLayoutEntry {
+                            // Regularization buffer
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            // Regularization output buffer
+                            binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
 
-            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Frobenius Norm Buffer"),
+            let norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Norm Buffer"),
                 mapped_at_creation: false,
                 size: std::mem::size_of::<f32>() as u64,
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
+            let regularization_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Regularization Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<(u32, f32)>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Regularization Output Buffer"),
+                mapped_at_creation: false,
+                size: num_outputs
+                    * input_connecting_bind_group.num_inputs
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
             let back_propgation_bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("Output Layer Back Propogation Bind Group"),
                 layout: &back_propogation_bind_group_layout,
-                entries: &[BindGroupEntry {
-                    binding: 0,
-                    resource: frobenius_norm_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: norm_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: regularization_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: regularization_output_buffer.as_entire_binding(),
+                    },
+                ],
             });
 
             (
                 back_propogation_bind_group_layout,
                 back_propgation_bind_group,
-                frobenius_norm_buffer,
+                norm_buffer,
+                regularization_buffer,
+                regularization_output_buffer,
             )
         };
 
@@ -427,6 +488,27 @@ impl OutputLayer {
             })
         };
 
+        let regularization_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/output_layer/output_layer_regularization.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Output Layer Regularization Compute Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout, &back_propogation_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Output Layer Regularization Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("output_layer_regularization_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
         Self {
             num_inputs: input_connecting_bind_group.num_inputs,
             num_outputs,
@@ -439,7 +521,9 @@ impl OutputLayer {
             loss_function_buffer,
             expected_values_buffer,
             // -------------------------------
-            frobenius_norm_buffer,
+            norm_buffer,
+            regularization_buffer,
+            regularization_output_buffer,
             // -------------------------------
             read_buffer,
             loss_read_buffer,
@@ -459,6 +543,7 @@ impl OutputLayer {
             // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
+            regularization_pipeline,
         }
     }
 
@@ -488,7 +573,7 @@ impl OutputLayer {
             // Set the pipeline
             compute_pass.set_pipeline(&self.feed_forward_pipeline);
 
-            // Set the bind group
+            // Set the bind groups
             compute_pass.set_bind_group(0, self.input_bind_group.as_ref(), &[]);
             compute_pass.set_bind_group(1, &self.bind_group, &[]);
 
@@ -622,6 +707,7 @@ impl OutputLayer {
     ///
     /// # Arguments
     ///
+    /// * `device` - wgpu device reference to send commands to
     /// * `queue` - wgpu queue reference to write to the frobenius norm buffer
     ///
     /// # Returns
@@ -656,11 +742,100 @@ impl OutputLayer {
 
         // Write the norm to the buffer
         queue.write_buffer(
-            &self.frobenius_norm_buffer,
+            &self.norm_buffer,
             0,
             bytemuck::cast_slice(&[frobenius_norm]),
         );
 
         frobenius_norm
+    }
+
+    /// Generates the regularization for the layer with the
+    /// chosen regularization function and store the result
+    /// in the gpu buffer to be used for back propogation
+    ///
+    /// # Arguments
+    ///
+    /// * `regularization` - A regularization container that contains the regularization function and the hyper paramter
+    /// * `device` - a reference to wgpu device to send commands to
+    /// * `queue` - a reference to wgpu queue to send command with
+    ///
+    /// # Returns
+    ///
+    /// `Vec<f32>` of the computed value of the regularization function for this layer
+    pub fn generate_regularization_function(
+        &self,
+        regularization: Regularization,
+        device: &Device,
+        queue: &Queue,
+    ) -> Vec<f32> {
+        // representation of struct to send to gpu
+        #[repr(C)]
+        #[derive(Pod, Zeroable, Copy, Clone)]
+        struct RegRepr {
+            function: u32,
+            hyper_parameter: f32,
+        }
+
+        match regularization.function {
+            RegularizationFunction::Lasso => {
+                todo!()
+            }
+            RegularizationFunction::Ridge => {
+                _ = self.generate_weights_frobenius_norm(device, queue);
+                queue.write_buffer(
+                    &self.regularization_buffer,
+                    0,
+                    bytemuck::cast_slice(&[RegRepr {
+                        function: 1,
+                        hyper_parameter: 1.0,
+                    }]),
+                );
+            }
+            RegularizationFunction::ElasticNetRegression => {
+                todo!()
+            }
+        }
+
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Regularization Command Encoder"),
+        });
+
+        {
+            let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
+                (self.num_inputs as u32, self.num_outputs as u32),
+                (D2_WORK_GROUP_SIZE, D2_WORK_GROUP_SIZE),
+            );
+
+            // Begin the compute pass
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("Output Layer Regulariation Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            // Set the pipeline
+            compute_pass.set_pipeline(&self.regularization_pipeline);
+
+            // Set the bind groups
+            compute_pass.set_bind_group(0, &self.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.back_propogation_bind_group, &[]);
+
+            // Dispatch the workgroups
+            compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+        }
+
+        encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
+        device.poll(Maintain::Wait);
+
+        let value = read_buffer(
+            &self.regularization_output_buffer,
+            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        get_buffer(&value, device)
     }
 }

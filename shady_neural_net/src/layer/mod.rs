@@ -19,10 +19,21 @@ mod output_layer;
 mod errors;
 
 const WORK_GROUP_SIZE: u32 = 256;
+const D2_WORK_GROUP_SIZE: u32 = 16;
 
 // Helper functions
 fn compute_workgroup_size(nodes: u32, work_group_size: u32) -> u32 {
     (nodes + work_group_size - 1) / work_group_size
+}
+
+fn compute_2d_workgroup_size(
+    (width, height): (u32, u32),
+    (work_group_width, work_group_height): (u32, u32),
+) -> (u32, u32) {
+    let x = (width + work_group_width - 1) / work_group_width;
+    let y = (height + work_group_height - 1) / work_group_height;
+
+    (x, y)
 }
 
 // Error Structs

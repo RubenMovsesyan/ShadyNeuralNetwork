@@ -40,9 +40,12 @@ fn output_layer_cost_main(
 ) {
     // Binary Cross Entropy Loss
     let row = global_id.x;
+    let m = dims.x;
 
-    let predicted = output_buffer[row];
-    let expected = expected_values_buffer[row];
+    if (row < m) {
+        let predicted = output_buffer[row];
+        let expected = expected_values_buffer[row];
 
-    loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
+        loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
+    }
 }
