@@ -462,7 +462,15 @@ impl OutputLayer {
         }
     }
 
-    pub fn recieve(&self, device: &Device, queue: &Queue) {
+    /// Runs the feed forward algorithm to the end of the output layer
+    /// and store the output as the softmax vector of the output computation
+    /// in the output buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device to run shaders
+    /// * `queue` - refernce to the wgpu queue to submit commands to the gpu
+    pub fn feed_forward(&self, device: &Device, queue: &Queue) {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Input Layer Command Encoder"),
         });

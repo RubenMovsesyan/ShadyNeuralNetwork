@@ -209,7 +209,7 @@ impl NeuralNet {
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                output_layer.recieve(&self.device, &self.queue);
+                output_layer.feed_forward(&self.device, &self.queue);
                 Ok(output_layer.get_output(&self.device))
             }
             _ => return Err(Box::new(NoHiddenLayersAddedError)),
