@@ -6,5 +6,6 @@ pub enum RegularizationFunction {
 
 pub struct Regularization {
     pub function: RegularizationFunction,
-    pub hyper_parameter: f32,
+    pub hyper_parameter_1: f32,
+    pub hyper_parameter_2: f32,
 }

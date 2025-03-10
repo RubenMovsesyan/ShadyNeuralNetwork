@@ -240,8 +240,9 @@ impl NeuralNet {
             if let NeuralNetLayer::Output(output_layer) = layer {
                 let regularization_weights = output_layer.generate_regularization_function(
                     Regularization {
-                        function: RegularizationFunction::Ridge,
-                        hyper_parameter: 1.0,
+                        function: RegularizationFunction::ElasticNetRegression,
+                        hyper_parameter_1: 1.0,
+                        hyper_parameter_2: 0.5,
                     },
                     &self.device,
                     &self.queue,
@@ -258,8 +259,9 @@ impl NeuralNet {
             if let NeuralNetLayer::Dense(dense_layer) = layer {
                 let regularization_weights = dense_layer.generate_regulariaztion_function(
                     Regularization {
-                        function: RegularizationFunction::Ridge,
-                        hyper_parameter: 1.0,
+                        function: RegularizationFunction::ElasticNetRegression,
+                        hyper_parameter_1: 0.1,
+                        hyper_parameter_2: 1.0,
                     },
                     &self.device,
                     &self.queue,

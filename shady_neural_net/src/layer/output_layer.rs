@@ -33,7 +33,8 @@ pub struct OutputLayer {
     expected_values_buffer: Buffer,
 
     // buffers used in back propogation
-    norm_buffer: Buffer,
+    l_1_norm_buffer: Buffer,
+    frobenius_norm_buffer: Buffer,
     regularization_buffer: Buffer,
     regularization_output_buffer: Buffer,
 
@@ -338,7 +339,8 @@ impl OutputLayer {
         let (
             back_propogation_bind_group_layout,
             back_propogation_bind_group,
-            norm_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
             regularization_buffer,
             regularization_output_buffer,
         ) = {
@@ -347,7 +349,7 @@ impl OutputLayer {
                     label: Some("Output Layer Back Propogation Bind Group Layout"),
                     entries: &[
                         BindGroupLayoutEntry {
-                            // Norm buffer
+                            // L1 Norm buffer
                             binding: 0,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
@@ -358,7 +360,7 @@ impl OutputLayer {
                             count: None,
                         },
                         BindGroupLayoutEntry {
-                            // Regularization buffer
+                            // Frobenius Norm Buffer
                             binding: 1,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
@@ -369,8 +371,19 @@ impl OutputLayer {
                             count: None,
                         },
                         BindGroupLayoutEntry {
-                            // Regularization output buffer
+                            // Regularization buffer
                             binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            // Regularization output buffer
+                            binding: 3,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: false },
@@ -382,8 +395,15 @@ impl OutputLayer {
                     ],
                 });
 
-            let norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Norm Buffer"),
+            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer L1 Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Frobenius Norm Buffer"),
                 mapped_at_creation: false,
                 size: std::mem::size_of::<f32>() as u64,
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
@@ -392,7 +412,7 @@ impl OutputLayer {
             let regularization_buffer = device.create_buffer(&BufferDescriptor {
                 label: Some("Output Layer Regularization Buffer"),
                 mapped_at_creation: false,
-                size: std::mem::size_of::<(u32, f32)>() as u64,
+                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
@@ -411,14 +431,18 @@ impl OutputLayer {
                 entries: &[
                     BindGroupEntry {
                         binding: 0,
-                        resource: norm_buffer.as_entire_binding(),
+                        resource: l_1_norm_buffer.as_entire_binding(),
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: regularization_buffer.as_entire_binding(),
+                        resource: frobenius_norm_buffer.as_entire_binding(),
                     },
                     BindGroupEntry {
                         binding: 2,
+                        resource: regularization_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
                         resource: regularization_output_buffer.as_entire_binding(),
                     },
                 ],
@@ -427,7 +451,8 @@ impl OutputLayer {
             (
                 back_propogation_bind_group_layout,
                 back_propgation_bind_group,
-                norm_buffer,
+                l_1_norm_buffer,
+                frobenius_norm_buffer,
                 regularization_buffer,
                 regularization_output_buffer,
             )
@@ -521,7 +546,8 @@ impl OutputLayer {
             loss_function_buffer,
             expected_values_buffer,
             // -------------------------------
-            norm_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
             regularization_buffer,
             regularization_output_buffer,
             // -------------------------------
@@ -708,7 +734,7 @@ impl OutputLayer {
     /// # Arguments
     ///
     /// * `device` - wgpu device reference to send commands to
-    /// * `queue` - wgpu queue reference to write to the frobenius norm buffer
+    /// * `queue` - wgpu queue reference to write to the norm buffer
     ///
     /// # Returns
     ///
@@ -734,7 +760,7 @@ impl OutputLayer {
             // Σ of all squared values in matrix
             let squared_sum = weights
                 .iter()
-                .map(|weight| f32::powi(f32::abs(*weight), 2))
+                .map(|weight| f32::powi(f32::abs(*weight), 2)) // WARN do I really need abs here?
                 .sum();
 
             f32::sqrt(squared_sum)
@@ -742,12 +768,49 @@ impl OutputLayer {
 
         // Write the norm to the buffer
         queue.write_buffer(
-            &self.norm_buffer,
+            &self.frobenius_norm_buffer,
             0,
             bytemuck::cast_slice(&[frobenius_norm]),
         );
 
         frobenius_norm
+    }
+
+    /// Generatea the L~1~ norm of the weight matrix
+    /// and stores it in the GPU buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - wgpu device reference to send command to
+    /// * `queue` - wgpu queue reference to write to the norm buffer
+    ///
+    /// # Returns
+    ///
+    /// `f32` value for the L~1~ norm
+    pub fn generate_weights_l_1_norm(&self, device: &Device, queue: &Queue) -> f32 {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Dense Layer Generate Weight L1 Norm Command Encoder"),
+        });
+
+        let weights_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_outputs * self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        // sends the command to copy the buffer to the gpu
+        queue.submit(Some(encoder.finish()));
+
+        let weights = get_buffer(&weights_buffer, device);
+
+        // Σ of all absolute values in matrix
+        let l_1_norm = weights.iter().map(|weight| f32::abs(*weight)).sum();
+
+        // Write the norm to the buffer
+        queue.write_buffer(&self.l_1_norm_buffer, 0, bytemuck::cast_slice(&[l_1_norm]));
+
+        l_1_norm
     }
 
     /// Generates the regularization for the layer with the
@@ -774,12 +837,22 @@ impl OutputLayer {
         #[derive(Pod, Zeroable, Copy, Clone)]
         struct RegRepr {
             function: u32,
-            hyper_parameter: f32,
+            hyper_parameter_1: f32,
+            hyper_parameter_2: f32,
         }
 
         match regularization.function {
             RegularizationFunction::Lasso => {
-                todo!()
+                _ = self.generate_weights_l_1_norm(device, queue);
+                queue.write_buffer(
+                    &self.regularization_buffer,
+                    0,
+                    bytemuck::cast_slice(&[RegRepr {
+                        function: 0,
+                        hyper_parameter_1: regularization.hyper_parameter_1,
+                        hyper_parameter_2: 0.0,
+                    }]),
+                );
             }
             RegularizationFunction::Ridge => {
                 _ = self.generate_weights_frobenius_norm(device, queue);
@@ -788,17 +861,28 @@ impl OutputLayer {
                     0,
                     bytemuck::cast_slice(&[RegRepr {
                         function: 1,
-                        hyper_parameter: 1.0,
+                        hyper_parameter_1: regularization.hyper_parameter_1,
+                        hyper_parameter_2: 0.0,
                     }]),
                 );
             }
             RegularizationFunction::ElasticNetRegression => {
-                todo!()
+                _ = self.generate_weights_l_1_norm(device, queue);
+                _ = self.generate_weights_frobenius_norm(device, queue);
+                queue.write_buffer(
+                    &self.regularization_buffer,
+                    0,
+                    bytemuck::cast_slice(&[RegRepr {
+                        function: 2,
+                        hyper_parameter_1: regularization.hyper_parameter_1,
+                        hyper_parameter_2: regularization.hyper_parameter_2,
+                    }]),
+                );
             }
         }
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Output Layer Regularization Command Encoder"),
+            label: Some("Dense Layer Regularization Command Encoder"),
         });
 
         {
