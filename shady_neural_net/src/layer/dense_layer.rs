@@ -55,6 +55,18 @@ pub struct DenseLayer {
 }
 
 impl DenseLayer {
+    /// Initialize a new dense layer with random weights and biases
+    ///
+    /// # Arguments
+    ///
+    /// * `input_connection_bind_group` - Bind group reference from the previous layer
+    /// * `num_nodes` - number of nodes in this layer
+    /// * `activation_function` - activation function type and function parameter if necessary
+    /// * `device` - a reference to wgpu device to create necessary buffers
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `DenseLayer`
     pub fn new(
         input_connecting_bind_group: &ConnectingBindGroup,
         num_nodes: u64,
@@ -404,6 +416,14 @@ impl DenseLayer {
         }
     }
 
+    /// Runs the feed forward algorithm through the dense layer and stores
+    /// the output before the activation function in the intermediary buffer
+    /// the the output after the activation function in the output buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device to run shaders
+    /// * `queue` - reference to the wgpu queue to submit commands to the gpu
     pub fn feed_forward(&self, device: &Device, queue: &Queue) {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Input Layer Command Encoder"),

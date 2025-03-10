@@ -63,7 +63,7 @@ impl OutputLayer {
     /// # Arguments
     ///
     /// * `input_connecting_bind_group` - Bind group reference from the previous layer
-    /// * `num_outputs` - number out outputs in this layer
+    /// * `num_outputs` - number of outputs in this layer
     /// * `device` - a reference to wgpu device to create necessary buffers
     ///
     /// # Returs
@@ -520,6 +520,7 @@ impl OutputLayer {
     /// * `queue` - reference to the adapter queue for dispatching workgroups
     ///
     /// # Returns
+    ///
     /// `f32` cost value: average of all loss values
     pub fn compute_loss(&self, expected_values: &[f32], device: &Device, queue: &Queue) -> f32 {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
@@ -581,6 +582,7 @@ impl OutputLayer {
     /// * `device` - reference to wgpu device to read output buffer
     ///
     /// # Returns
+    ///
     /// `Vec<f32>` of the computed output values    
     pub fn get_output(&self, device: &Device) -> Vec<f32> {
         let slice = self.read_buffer.slice(..);
@@ -601,6 +603,7 @@ impl OutputLayer {
     /// * `device` - refernce to the wgpu device to read the buffer
     ///
     /// # Returns
+    ///
     /// `Vec<f32>` of the computed loss values
     pub fn get_loss(&self, device: &Device) -> Vec<f32> {
         let slice = self.loss_read_buffer.slice(..);
