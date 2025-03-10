@@ -1,10 +1,14 @@
 use std::rc::Rc;
 
-use crate::utils::{get_buffer, read_buffer};
+use crate::{
+    layer::{D2_WORK_GROUP_SIZE, compute_2d_workgroup_size},
+    regularization::RegularizationFunction,
+    utils::{get_buffer, read_buffer},
+};
 
 use super::{
     ConnectingBindGroup, Layer, WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias,
-    compute_workgroup_size,
+    compute_workgroup_size, regularization::Regularization,
 };
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
@@ -32,6 +36,8 @@ pub struct DenseLayer {
 
     // buffers used in back propogation
     frobenius_norm_buffer: Buffer,
+    regularization_buffer: Buffer,
+    regularization_output_buffer: Buffer,
 
     // Input Bind group information
     input_buffer: Rc<Buffer>,
@@ -52,6 +58,7 @@ pub struct DenseLayer {
 
     // GPU pipeline information
     pipeline: ComputePipeline,
+    regularization_pipeline: ComputePipeline,
 }
 
 impl DenseLayer {
@@ -91,7 +98,7 @@ impl DenseLayer {
                         binding: 0,
                         visibility: ShaderStages::COMPUTE,
                         ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
+                            ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
                             min_binding_size: None,
                         },
@@ -182,7 +189,9 @@ impl DenseLayer {
             };
 
             let dimensions_buffer = {
-                let dimensions = vec![num_nodes, input_connecting_bind_group.num_inputs];
+                let mut dimensions = Vec::new();
+                dimensions.push(input_connecting_bind_group.num_inputs as u32);
+                dimensions.push(num_nodes as u32);
 
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Dimensions Buffer"),
@@ -322,20 +331,47 @@ impl DenseLayer {
             back_propogation_bind_group_layout,
             back_propogation_bind_group,
             frobenius_norm_buffer,
+            regularization_buffer,
+            regularization_output_buffer,
         ) = {
             let back_propogation_bind_group_layout =
                 device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                     label: Some("Dense Layer Back Propogation Bind Group Layout"),
-                    entries: &[BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            // Norm Buffer
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        BindGroupLayoutEntry {
+                            // Regularization Buffer
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            // Regularization Output Buffer
+                            binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
 
             let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
@@ -345,19 +381,47 @@ impl DenseLayer {
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             });
 
+            let regularization_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Regularization Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<(u32, f32)>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Regularization Output Buffer"),
+                mapped_at_creation: false,
+                size: input_connecting_bind_group.num_inputs
+                    * num_nodes
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
             let back_propogation_bind_group = device.create_bind_group(&BindGroupDescriptor {
                 label: Some("Dense Layer Back Propogation Bind Group"),
                 layout: &back_propogation_bind_group_layout,
-                entries: &[BindGroupEntry {
-                    binding: 0,
-                    resource: frobenius_norm_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: frobenius_norm_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: regularization_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: regularization_output_buffer.as_entire_binding(),
+                    },
+                ],
             });
 
             (
                 back_propogation_bind_group_layout,
                 back_propogation_bind_group,
                 frobenius_norm_buffer,
+                regularization_buffer,
+                regularization_output_buffer,
             )
         };
 
@@ -387,6 +451,28 @@ impl DenseLayer {
             })
         };
 
+        // Create the pipeline to compute the regularization function
+        let regularization_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/dense_layer/dense_layer_regularization.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Dense Layer Regularization Compute Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout, &back_propogation_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Dense Layer Regularization Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("dense_layer_regularization_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
         Self {
             num_nodes,
             num_inputs: input_connecting_bind_group.num_inputs,
@@ -398,6 +484,8 @@ impl DenseLayer {
             output_buffer: Rc::new(output_buffer),
             // ------------------------------------
             frobenius_norm_buffer,
+            regularization_buffer,
+            regularization_output_buffer,
             // ------------------------------------
             input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
@@ -413,6 +501,7 @@ impl DenseLayer {
             back_propogation_bind_group,
             // ------------------------------------
             pipeline,
+            regularization_pipeline,
         }
     }
 
@@ -502,6 +591,95 @@ impl DenseLayer {
         );
 
         frobenius_norm
+    }
+
+    /// Generates the regularization for the layer with the
+    /// chosen regularization function and store the result
+    /// in the gpu buffer to be used for back propogation
+    ///
+    /// # Arguments
+    ///
+    /// * `regularization` - A regularization container that contains the regularization function and the hyper paramter
+    /// * `device` - a reference to wgpu device to send commands to
+    /// * `queue` - a reference to wgpu queue to send command with
+    ///
+    /// # Returns
+    ///
+    /// `Vec<f32>` of the computed value of the regularization function for this layer}
+    pub fn generate_regulariaztion_function(
+        &self,
+        regularization: Regularization,
+        device: &Device,
+        queue: &Queue,
+    ) -> Vec<f32> {
+        // representation of struct to send to gpu
+        #[repr(C)]
+        #[derive(Pod, Zeroable, Copy, Clone)]
+        struct RegRepr {
+            function: u32,
+            hyper_parameter: f32,
+        }
+
+        match regularization.function {
+            RegularizationFunction::Lasso => {
+                todo!()
+            }
+            RegularizationFunction::Ridge => {
+                _ = self.generate_weights_frobenius_norm(device, queue);
+                queue.write_buffer(
+                    &self.regularization_buffer,
+                    0,
+                    bytemuck::cast_slice(&[RegRepr {
+                        function: 1,
+                        hyper_parameter: 1.0,
+                    }]),
+                );
+            }
+            RegularizationFunction::ElasticNetRegression => {
+                todo!()
+            }
+        }
+
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Regularization Command Encoder"),
+        });
+
+        {
+            let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
+                (self.num_inputs as u32, self.num_nodes as u32),
+                (D2_WORK_GROUP_SIZE, D2_WORK_GROUP_SIZE),
+            );
+
+            // Begin the compute pass
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("Output Layer Regulariation Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            // Set the pipeline
+            compute_pass.set_pipeline(&self.regularization_pipeline);
+
+            // Set the bind groups
+            compute_pass.set_bind_group(0, &self.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.back_propogation_bind_group, &[]);
+
+            // Dispatch the workgroups
+            compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+        }
+
+        encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
+        device.poll(Maintain::Wait);
+
+        let value = read_buffer(
+            &self.regularization_output_buffer,
+            self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        get_buffer(&value, device)
     }
 }
 

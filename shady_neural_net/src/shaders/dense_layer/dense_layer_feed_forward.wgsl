@@ -4,7 +4,7 @@ var<storage, read_write> input_buffer: array<f32>;
 
 // Weights of the current layer
 @group(1) @binding(0)
-var<storage, read> weights_buffer: array<f32>;
+var<storage, read_write> weights_buffer: array<f32>;
 
 struct Bias {
     bias: f32,

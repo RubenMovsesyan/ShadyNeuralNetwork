@@ -247,7 +247,28 @@ impl NeuralNet {
                     &self.queue,
                 );
 
-                println!("Regularization Weights: {:#?}", regularization_weights);
+                println!(
+                    "Output Regularization Weights: {:#?}",
+                    regularization_weights,
+                );
+            }
+        }
+
+        for layer in self.hidden_layers.iter() {
+            if let NeuralNetLayer::Dense(dense_layer) = layer {
+                let regularization_weights = dense_layer.generate_regulariaztion_function(
+                    Regularization {
+                        function: RegularizationFunction::Ridge,
+                        hyper_parameter: 1.0,
+                    },
+                    &self.device,
+                    &self.queue,
+                );
+
+                println!(
+                    "Dense Regularization Weights: {:#?}",
+                    regularization_weights,
+                )
             }
         }
     }
