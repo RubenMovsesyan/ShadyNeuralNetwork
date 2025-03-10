@@ -66,7 +66,7 @@ impl OutputLayer {
     /// * `num_outputs` - number of outputs in this layer
     /// * `device` - a reference to wgpu device to create necessary buffers
     ///
-    /// # Returs
+    /// # Returns
     ///
     /// A new instance of `OutputLayer`
     pub fn new(

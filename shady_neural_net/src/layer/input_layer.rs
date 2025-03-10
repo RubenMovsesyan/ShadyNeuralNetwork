@@ -11,6 +11,7 @@ use wgpu::{
 use super::{Layer, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError};
 
 /// Input Layer struct used in neural net layer
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct InputLayer {
     pub num_inputs: u64,
@@ -22,6 +23,16 @@ pub struct InputLayer {
 }
 
 impl InputLayer {
+    /// Initialize a new input layer with the necessary buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `num_inputs` - number of inputs in this layer
+    /// * `device` - a reference to wgpu device to create necessary buffers
+    ///
+    /// # Returns
+    ///
+    /// A new instance of `InputLayer`
     pub fn new(num_inputs: u64, device: &Device) -> Self {
         // Create the buffer from the input data
         let bind_group_layout =
@@ -83,6 +94,19 @@ impl InputLayer {
         }
     }
 
+    /// Sets the inputs of the input layer buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `inputs` - Vector of inputs to set as the input layer
+    /// * `device` - a reference to wgpu device to set inputs layer
+    /// * `queue` - a reference to wgpu queue to set inputs layer
+    ///
+    /// # Returns
+    ///
+    /// `Result` of `Ok(())` if the inputs were set successfully
+    /// or `Err(InputLengthMismatchError)` if the input vector
+    /// is not the same size as the input buffer
     pub fn set_inputs(
         &self,
         mut inputs: Vec<f32>,
