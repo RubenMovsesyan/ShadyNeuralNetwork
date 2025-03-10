@@ -38,4 +38,6 @@ fn main() {
             .get_cost(vec![0.2, 0.2, 6.0])
             .expect("Could Not Get Cost")
     );
+
+    neural_net.back_propogate();
 }

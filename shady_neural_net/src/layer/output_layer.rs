@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::utils::{print_buffer, read_buffer};
+use crate::utils::{get_buffer, print_buffer, read_buffer};
 
 use super::{ConnectingBindGroup, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
 use wgpu::{
@@ -18,6 +18,7 @@ pub struct OutputLayer {
     num_inputs: u64,
     num_outputs: u64,
 
+    // Buffers associated in feed forward computation
     weights_buffer: Buffer,
     bias_buffer: Buffer,
     intermediary_buffer: Buffer,
@@ -26,6 +27,9 @@ pub struct OutputLayer {
     // Cost function buffer
     loss_function_buffer: Buffer,
     expected_values_buffer: Buffer,
+
+    // buffers used in back propogation
+    frobenius_norm_buffer: Buffer,
 
     // Buffer for reading the output values
     read_buffer: Buffer,
@@ -44,12 +48,27 @@ pub struct OutputLayer {
     loss_function_bind_group_layout: BindGroupLayout,
     loss_function_bind_group: BindGroup,
 
+    // Back Propogation bind groups
+    back_propogation_bind_group_layout: BindGroupLayout,
+    back_propogation_bind_group: BindGroup,
+
     // GPU Pipeline Information
     feed_forward_pipeline: ComputePipeline,
     loss_function_pipeline: ComputePipeline,
 }
 
 impl OutputLayer {
+    /// Initialize a new output layer with random weights and biases
+    ///
+    /// # Arguments
+    ///
+    /// * `input_connecting_bind_group` - Bind group reference from the previous layer
+    /// * `num_outputs` - number out outputs in this layer
+    /// * `device` - a reference to wgpu device to create necessary buffers
+    ///
+    /// # Returs
+    ///
+    /// A new instance of `OutputLayer`
     pub fn new(
         input_connecting_bind_group: &ConnectingBindGroup,
         num_outputs: u64,
@@ -130,7 +149,7 @@ impl OutputLayer {
                 label: Some("Output Layer Buffer"),
                 mapped_at_creation: false,
                 size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             });
 
             let read_buffer = device.create_buffer(&BufferDescriptor {
@@ -308,6 +327,51 @@ impl OutputLayer {
             )
         };
 
+        // Create the bind group and buffers for back propogation
+        let (
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            frobenius_norm_buffer,
+        ) = {
+            let back_propogation_bind_group_layout =
+                device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: Some("Output Layer Back Propogation Bind Group Layout"),
+                    entries: &[BindGroupLayoutEntry {
+                        // Frobenius norm buffer
+                        binding: 0,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Frobenius Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let back_propgation_bind_group = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("Output Layer Back Propogation Bind Group"),
+                layout: &back_propogation_bind_group_layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: frobenius_norm_buffer.as_entire_binding(),
+                }],
+            });
+
+            (
+                back_propogation_bind_group_layout,
+                back_propgation_bind_group,
+                frobenius_norm_buffer,
+            )
+        };
+
         // This is the main pipeline that is used when feeding information forward
         // through the neural network. This pipeline will not effect any of the
         // weights or biases that are created in this layer
@@ -326,7 +390,7 @@ impl OutputLayer {
             });
 
             device.create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some("Output Layer Compute Pipeline"),
+                label: Some("Output Layer Feed Forward Compute Pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader,
                 entry_point: Some("output_layer_main"),
@@ -366,21 +430,33 @@ impl OutputLayer {
         Self {
             num_inputs: input_connecting_bind_group.num_inputs,
             num_outputs,
-            input_buffer: input_connecting_bind_group.buffer.clone(),
-            input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
-            input_bind_group: input_connecting_bind_group.bind_group.clone(),
+            // -------------------------------
             weights_buffer,
             bias_buffer,
             intermediary_buffer,
             buffer,
+            // -------------------------------
+            loss_function_buffer,
+            expected_values_buffer,
+            // -------------------------------
+            frobenius_norm_buffer,
+            // -------------------------------
             read_buffer,
             loss_read_buffer,
-            expected_values_buffer,
-            loss_function_bind_group_layout,
-            loss_function_bind_group,
-            loss_function_buffer,
+            // -------------------------------
+            input_buffer: input_connecting_bind_group.buffer.clone(),
+            input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
+            input_bind_group: input_connecting_bind_group.bind_group.clone(),
+            // -------------------------------
             bind_group_layout,
             bind_group,
+            // -------------------------------
+            loss_function_bind_group_layout,
+            loss_function_bind_group,
+            // -------------------------------
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
         }
@@ -466,7 +542,18 @@ impl OutputLayer {
         print_buffer(&after, device, "Output layer outputs");
     }
 
-    pub fn compute_cost(&self, expected_values: &[f32], device: &Device, queue: &Queue) -> f32 {
+    /// Computes the loss of the model based on some expected values
+    /// Stores the loss computations in the loss buffer
+    ///
+    /// # Arguments
+    ///
+    /// * `expected_values` - slice of values expected for the given input
+    /// * `device` - reference to the wgpu device for dispatching workgroups
+    /// * `queue` - reference to the adapter queue for dispatching workgroups
+    ///
+    /// # Returns
+    /// `f32` cost value: average of all loss values
+    pub fn compute_loss(&self, expected_values: &[f32], device: &Device, queue: &Queue) -> f32 {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Output Layer Cost Function Command Encoder"),
         });
@@ -520,8 +607,14 @@ impl OutputLayer {
         loss_vector.iter().sum::<f32>() / loss_vector.len() as f32
     }
 
-    /// Gets a Vec<f32> of the output that was computed
-    /// from the last feed forward Call of the layer
+    /// Gets a vector of the output from the previous feed forward call
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to wgpu device to read output buffer
+    ///
+    /// # Returns
+    /// `Vec<f32>` of the computed output values    
     pub fn get_output(&self, device: &Device) -> Vec<f32> {
         let slice = self.read_buffer.slice(..);
         slice.map_async(MapMode::Read, |_| {});
@@ -534,9 +627,14 @@ impl OutputLayer {
         new_slice.to_vec()
     }
 
-    /// Gets a Vec<f32> of the result of the cost function
-    /// that was computed from the last cost function call
-    /// of the layer
+    /// Reads the loss buffer from the last `compute_cost` call
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - refernce to the wgpu device to read the buffer
+    ///
+    /// # Returns
+    /// `Vec<f32>` of the computed loss values
     pub fn get_loss(&self, device: &Device) -> Vec<f32> {
         let slice = self.loss_read_buffer.slice(..);
         slice.map_async(MapMode::Read, |_| {});
@@ -547,5 +645,51 @@ impl OutputLayer {
         let new_slice: &[f32] = bytemuck::cast_slice(&data);
 
         new_slice.to_vec()
+    }
+
+    /// Generates the frobenius norm of the weight matrix
+    ///
+    /// # Arguments
+    ///
+    /// * `queue` - wgpu queue reference to write to the frobenius norm buffer
+    ///
+    /// # Returns
+    ///
+    /// `f32` value for the frobenius norm
+    pub fn generate_weights_frobenius_norm(&self, device: &Device, queue: &Queue) -> f32 {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Generate Weight Frobenius Norm Command Encoder"),
+        });
+
+        let weights_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_outputs * self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        // sends the commands to copy the buffer to the gpu
+        queue.submit(Some(encoder.finish()));
+
+        let weights = get_buffer(&weights_buffer, device);
+
+        let frobenius_norm = {
+            // Σ of all squared values in matrix
+            let squared_sum = weights
+                .iter()
+                .map(|weight| f32::powi(f32::abs(*weight), 2))
+                .sum();
+
+            f32::sqrt(squared_sum)
+        };
+
+        // Write the norm to the buffer
+        queue.write_buffer(
+            &self.frobenius_norm_buffer,
+            0,
+            bytemuck::cast_slice(&[frobenius_norm]),
+        );
+
+        frobenius_norm
     }
 }

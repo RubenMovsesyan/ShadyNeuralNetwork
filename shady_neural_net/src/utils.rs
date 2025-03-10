@@ -32,3 +32,20 @@ pub fn print_buffer(buffer: &Buffer, device: &Device, name: &str) {
     drop(data);
     buffer.unmap();
 }
+
+pub fn get_buffer(buffer: &Buffer, device: &Device) -> Vec<f32> {
+    let slice = buffer.slice(..);
+    slice.map_async(MapMode::Read, |_| {});
+    device.poll(Maintain::Wait);
+
+    let data = slice.get_mapped_range();
+
+    let new_slice: &[f32] = bytemuck::cast_slice(&data);
+
+    let output = new_slice.to_vec();
+
+    drop(data);
+    buffer.unmap();
+
+    output
+}

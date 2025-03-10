@@ -1,20 +1,59 @@
-import numpy as np
-import matplotlib.pyplot as plt
+import math
 
+buffer = [
+    -0.6887224,
+    -0.9709523,
+    -0.38021207,
+    0.049619198,
+    0.2636168,
+    -0.52752805,
+    0.004954815,
+    0.41341615,
+    -0.21286273,
+    0.9375119,
+    0.3210783,
+    0.7801895,
+    -0.74845886,
+    -0.3175764,
+    0.10994935,
+    -0.8127644,
+    -0.89444757,
+    -0.13986564,
+    0.80523014,
+    0.119653225,
+    -0.4681468,
+    -0.14169407,
+    -0.71269727,
+    0.71063876,
+    -0.8267462,
+    0.41598678,
+    0.07076788,
+    0.4595759,
+    -0.8649225,
+    -0.08153272,
+    0.50754976,
+    0.21928287,
+    -0.23628664,
+    -0.3947866,
+    -0.8080363,
+    -0.12771416,
+    0.4561031,
+    0.60658145,
+    -0.5659151,
+    0.91205525,
+    -0.30894685,
+    -0.13974953,
+    -0.029908657,
+    -0.5128858,
+    -0.18619037,
+    0.5916598,
+    0.25172138,
+    -0.13522506
+]
 
-# Softmax function to make sure all elements of array only add up to 1
-def softmax(arr):
-    return np.exp(arr) / sum(np.exp(arr))
+sum_squares = 0.0
 
+for val in buffer:
+    sum_squares += abs(val) ** 2
 
-# Loss function
-def binary_cross_entropy_loss(prediction, label):
-    return -(label * np.log(prediction) + (1 - label) * np.log(1 - prediction))
-
-
-
-
-prediction = np.array([1, 2, 3, 4, 5, 6])
-label = np.array([6, 5, 4, 3, 2, 1])
-
-print(binary_cross_entropy_loss(softmax(prediction), softmax(label)))
+print(math.sqrt(sum_squares))

@@ -228,9 +228,24 @@ impl NeuralNet {
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                Ok(output_layer.compute_cost(&expected_values, &self.device, &self.queue))
+                Ok(output_layer.compute_loss(&expected_values, &self.device, &self.queue))
             }
             _ => return Err(Box::new(NoHiddenLayersAddedError)),
+        }
+    }
+
+    pub fn back_propogate(&self) {
+        match &self.output_layer {
+            Some(layer) => match layer {
+                NeuralNetLayer::Output(output_layer) => {
+                    let frobenius_norm =
+                        output_layer.generate_weights_frobenius_norm(&self.device, &self.queue);
+
+                    println!("Frobenius Norm: {}", frobenius_norm);
+                }
+                _ => {}
+            },
+            None => {}
         }
     }
 }
