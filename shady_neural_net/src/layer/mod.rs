@@ -3,7 +3,7 @@ use std::rc::Rc;
 #[allow(unused_imports)]
 use log::*;
 
-use wgpu::{BindGroup, BindGroupLayout, Buffer};
+use wgpu::Buffer;
 
 // Module for inner structures in the Neural Network
 use crate::layer_structs::*;
@@ -36,20 +36,17 @@ fn compute_2d_workgroup_size(
     (x, y)
 }
 
-// Error Structs
-
-// Trait for each layer to get the connecting buffer
-pub trait Layer {
-    fn get_connecting_bind_group(&self) -> Rc<BindGroup>;
-
-    fn get_connecting_bind_group_layout(&self) -> Rc<BindGroupLayout>;
-
-    fn get_connecting_buffer(&self) -> Rc<Buffer>;
+// Trait for layers that have a feed forawrd connection to the next layer
+pub trait FeedForwardLayer {
+    fn get_output_buffer(&self) -> Rc<Buffer>;
 }
 
-pub struct ConnectingBindGroup {
-    pub bind_group_layout: Rc<BindGroupLayout>,
-    pub bind_group: Rc<BindGroup>,
+// Trait for layers that have a back propogation connection to the previous layer
+pub trait BackPropogationLayer {
+    fn get_connecting_weight_buffer(&self) -> Rc<Buffer>;
+}
+
+pub struct FeedForwardConnection {
     pub buffer: Rc<Buffer>,
     pub num_inputs: u64,
 }
@@ -62,19 +59,15 @@ pub enum NeuralNetLayer {
 }
 
 impl NeuralNetLayer {
-    pub fn get_connecting_bind_group(&self) -> Option<ConnectingBindGroup> {
+    pub fn get_connecting_bind_group(&self) -> Option<FeedForwardConnection> {
         use NeuralNetLayer::*;
         match self {
-            Input(input_layer) => Some(ConnectingBindGroup {
-                bind_group_layout: input_layer.get_connecting_bind_group_layout(),
-                bind_group: input_layer.get_connecting_bind_group(),
-                buffer: input_layer.get_connecting_buffer(),
+            Input(input_layer) => Some(FeedForwardConnection {
+                buffer: input_layer.get_output_buffer(),
                 num_inputs: input_layer.num_inputs,
             }),
-            Dense(dense_layer) => Some(ConnectingBindGroup {
-                bind_group_layout: dense_layer.get_connecting_bind_group_layout(),
-                bind_group: dense_layer.get_connecting_bind_group(),
-                buffer: dense_layer.get_connecting_buffer(),
+            Dense(dense_layer) => Some(FeedForwardConnection {
+                buffer: dense_layer.get_output_buffer(),
                 num_inputs: dense_layer.num_nodes,
             }),
             Output(_) => None,

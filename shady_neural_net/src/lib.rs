@@ -202,7 +202,7 @@ impl NeuralNet {
         for layer in self.hidden_layers.iter() {
             match layer {
                 NeuralNetLayer::Dense(dense_layer) => {
-                    dense_layer.feed_forward(&self.device, &self.queue)
+                    dense_layer.feed_forward(&self.device, &self.queue);
                 }
                 _ => return Err(Box::new(NoHiddenLayersAddedError)),
             }
@@ -210,8 +210,7 @@ impl NeuralNet {
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                output_layer.feed_forward(&self.device, &self.queue);
-                Ok(output_layer.get_output(&self.device))
+                Ok(output_layer.feed_forward(&self.device, &self.queue))
             }
             _ => return Err(Box::new(NoHiddenLayersAddedError)),
         }

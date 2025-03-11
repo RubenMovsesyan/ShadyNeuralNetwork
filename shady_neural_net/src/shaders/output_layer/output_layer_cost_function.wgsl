@@ -1,28 +1,14 @@
 @group(0) @binding(0)
-var<storage, read_write> input_buffer: array<f32>;
-
-@group(1) @binding(0)
-var<storage, read_write> output_buffer: array<f32>;
-
-@group(1) @binding(1)
 var<uniform> dims: vec2<u32>;
 
-@group(1) @binding(2)
-var<storage, read> weights_buffer: array<f32>;
+@group(0) @binding(1)
+var<storage, read> output_buffer: array<f32>;
 
-struct Bias {
-    bias: f32,
-    bias_weight: f32,
-}
-
-@group(1) @binding(3)
-var<storage, read> bias_buffer: array<Bias>;
-
-@group(2) @binding(0)
-var<storage, read_write> loss_function_buffer: array<f32>;
-
-@group(2) @binding(1)
+@group(0) @binding(2)
 var<storage, read> expected_values_buffer: array<f32>;
+
+@group(0) @binding(3)
+var<storage, read_write> loss_function_buffer: array<f32>;
 
 
 fn binary_cross_entropy_loss(predicted: f32, expected: f32) -> f32 {

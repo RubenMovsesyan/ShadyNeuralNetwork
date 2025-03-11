@@ -8,7 +8,9 @@ use wgpu::{
     include_wgsl,
 };
 
-use super::{Layer, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError};
+use super::{
+    FeedForwardLayer, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError,
+};
 
 /// Input Layer struct used in neural net layer
 #[allow(dead_code)]
@@ -157,16 +159,22 @@ impl InputLayer {
     }
 }
 
-impl Layer for InputLayer {
-    fn get_connecting_bind_group(&self) -> Rc<BindGroup> {
-        self.bind_group.clone()
-    }
-
-    fn get_connecting_bind_group_layout(&self) -> Rc<BindGroupLayout> {
-        self.bind_group_layout.clone()
-    }
-
-    fn get_connecting_buffer(&self) -> Rc<Buffer> {
+impl FeedForwardLayer for InputLayer {
+    fn get_output_buffer(&self) -> Rc<Buffer> {
         self.buffer.clone()
     }
 }
+
+// impl Layer for InputLayer {
+//     fn get_connecting_bind_group(&self) -> Rc<BindGroup> {
+//         self.bind_group.clone()
+//     }
+
+//     fn get_connecting_bind_group_layout(&self) -> Rc<BindGroupLayout> {
+//         self.bind_group_layout.clone()
+//     }
+
+//     fn get_connecting_buffer(&self) -> Rc<Buffer> {
+//         self.buffer.clone()
+//     }
+// }

@@ -1,13 +1,10 @@
 @group(0) @binding(0)
-var<storage, read_write> input_buffer: array<f32>;
+var<storage, read> input_buffer: array<f32>;
 
 @group(1) @binding(0)
-var<storage, read_write> output_buffer: array<f32>;
-
-@group(1) @binding(1)
 var<uniform> dims: vec2<u32>;
 
-@group(1) @binding(2)
+@group(1) @binding(1)
 var<storage, read> weights_buffer: array<f32>;
 
 struct Bias {
@@ -15,11 +12,14 @@ struct Bias {
     bias_weight: f32,
 }
 
-@group(1) @binding(3)
+@group(1) @binding(2)
 var<storage, read> bias_buffer: array<Bias>;
 
-@group(1) @binding(4)
+@group(1) @binding(3)
 var<storage, read_write> intermediary_buffer: array<f32>;
+
+@group(1) @binding(4)
+var<storage, read_write> output_buffer: array<f32>;
 
 
 @compute @workgroup_size(256)

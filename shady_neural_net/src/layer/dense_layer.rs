@@ -7,8 +7,9 @@ use crate::{
 };
 
 use super::{
-    ConnectingBindGroup, Layer, WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias,
-    compute_workgroup_size, regularization::Regularization,
+    BackPropogationLayer, FeedForwardConnection, FeedForwardLayer, WORK_GROUP_SIZE,
+    activation::ActivationFunction, bias::Bias, compute_workgroup_size,
+    regularization::Regularization,
 };
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
@@ -20,6 +21,315 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 
+/// Creates the input bind group connecting the outputs
+/// from the previous layer to the current layer
+///
+/// # Arguments
+///
+/// * `device` - wgpu device reference to create bind group
+/// * `input_buffer` - buffer of inputs to the current layer
+///
+/// # Returns
+///
+/// `(BindGroupLayout, BindGroup)` tuple with the input bind group layout and the bind group
+fn create_input_bind_group(
+    device: &Device,
+    input_buffer: Rc<Buffer>,
+) -> (BindGroupLayout, BindGroup) {
+    let input_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+        label: Some("Dense Layer Input Bind Group Layout"),
+        entries: &[BindGroupLayoutEntry {
+            // Outputs from previous layer
+            binding: 0,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+
+    let input_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("Dense Layer Input Bind Group"),
+        layout: &input_bind_group_layout,
+        entries: &[BindGroupEntry {
+            binding: 0,
+            resource: input_buffer.as_entire_binding(),
+        }],
+    });
+
+    (input_bind_group_layout, input_bind_group)
+}
+
+/// Creates the feed forward bind group that contains the
+/// dimensions, weights, biases, intermediary, and output buffers
+///
+/// # Arguments
+///
+/// * `device` - wgpu device reference to create bind group
+/// * `dimensions_buffer` - buffer of dimensions of the weights
+/// * `weights_buffer` - buffer of the weights
+/// * `bias_buffer` - buffer of the biases
+/// * `activation_function_buffer` - buffer of the activation function information
+/// * `intermediary_buffer` - buffer of the intermediary stage before activation funciton
+/// * `output_buffer` - buffer of the layers outputs
+///
+/// # Returns
+///
+/// `(BindGroupLayout, BindGroup)` tuple with the feed forward bind group layout and bind group
+fn create_feed_forward_bind_group(
+    device: &Device,
+    dimensions_buffer: &Buffer,
+    weights_buffer: &Buffer,
+    bias_buffer: &Buffer,
+    activation_function_buffer: &Buffer,
+    intermediary_buffer: &Buffer,
+    output_buffer: &Buffer,
+) -> (BindGroupLayout, BindGroup) {
+    let feed_forward_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Dense Layer Feed Forward Bind Group Layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    // Dimensions Buffer
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Weights Buffer
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Bias Buffer
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Activation Function Buffer
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Intermediary Buffer
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Output Buffer
+                    binding: 5,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+    let feed_forward_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("Dense Layer Feed Forward Bind Group"),
+        layout: &feed_forward_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: dimensions_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: weights_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: bias_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: activation_function_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: intermediary_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: output_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    (feed_forward_bind_group_layout, feed_forward_bind_group)
+}
+
+/// Creates the feed forward bind group that contains the
+/// dimensions, weights, biases, intermediary, and output buffers
+///
+/// # Arguments
+///
+/// * `device` - wgpu device reference to create bind group
+/// * `l_1_norm_buffer` - buffer to store l_1_norm into
+/// * `frobenius_norm_buffer` - buffer to store frobenius norm into
+/// * `regularization_info_buffer` - uniform describing which kind of regularization to use for back propogation
+/// * `regularization_output_buffer` - buffer to store the output of the regularization derivative into
+/// * `dimensions_buffer` - buffer to store the dimensions of the weights buffer
+/// * `weights_buffer` - buffer of the weights of the current layer
+///
+/// # Returns
+///
+/// `(BindGroupLayout, BindGroup)` tuple with the back propogation bind group layout and bind group
+fn create_back_propogation_bind_group(
+    device: &Device,
+    l_1_norm_buffer: &Buffer,
+    frobenius_norm_buffer: &Buffer,
+    regularization_info_buffer: &Buffer,
+    regularization_output_buffer: &Buffer,
+    dimensions_buffer: &Buffer,
+    weights_buffer: &Buffer,
+) -> (BindGroupLayout, BindGroup) {
+    let back_propogation_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Dense Layout Back Propogation Bind Group Layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    // L1 Norm buffer
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Frobenius Norm buffer
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Regularization Info Norm buffer
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Regularization Ouptut Buffer
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Dimensions Buffer
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Weights Buffer
+                    binding: 5,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+    let back_propogation_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("Dense Layer Back Propogation Bind Group"),
+        layout: &back_propogation_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: l_1_norm_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: frobenius_norm_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: regularization_info_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: regularization_output_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: dimensions_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: weights_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    (
+        back_propogation_bind_group_layout,
+        back_propogation_bind_group,
+    )
+}
+
 /// Dense layer struct used in neural net
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -29,7 +339,7 @@ pub struct DenseLayer {
     activation_function: ActivationFunction,
 
     // Feed forward buffers
-    weights_buffer: Buffer,
+    weights_buffer: Rc<Buffer>,
     bias_buffer: Buffer,
     intermediary_buffer: Buffer,
     output_buffer: Rc<Buffer>,
@@ -37,28 +347,24 @@ pub struct DenseLayer {
     // buffers used in back propogation
     l_1_norm_buffer: Buffer,
     frobenius_norm_buffer: Buffer,
-    regularization_buffer: Buffer,
+    regularization_info_buffer: Buffer,
     regularization_output_buffer: Buffer,
 
     // Input Bind group information
     input_buffer: Rc<Buffer>,
-    input_bind_group_layout: Rc<BindGroupLayout>,
-    input_bind_group: Rc<BindGroup>,
+    input_bind_group_layout: BindGroupLayout,
+    input_bind_group: BindGroup,
 
     // Feed forward bind group information
-    bind_group_layout: BindGroupLayout,
-    bind_group: BindGroup,
-
-    // Output bind group information
-    output_bind_group_layout: Rc<BindGroupLayout>,
-    output_bind_group: Rc<BindGroup>,
+    feed_forward_bind_group_layout: BindGroupLayout,
+    feed_forward_bind_group: BindGroup,
 
     // Back Propogation bind groups
     back_propogation_bind_group_layout: BindGroupLayout,
     back_propogation_bind_group: BindGroup,
 
     // GPU pipeline information
-    pipeline: ComputePipeline,
+    feed_forward_pipeline: ComputePipeline,
     regularization_pipeline: ComputePipeline,
 }
 
@@ -76,81 +382,38 @@ impl DenseLayer {
     ///
     /// A new instance of `DenseLayer`
     pub fn new(
-        input_connecting_bind_group: &ConnectingBindGroup,
+        input_connecting_bind_group: &FeedForwardConnection,
         num_nodes: u64,
         activation_function: ActivationFunction,
         device: &Device,
     ) -> Self {
+        let (input_bind_group_layout, input_bind_group) =
+            create_input_bind_group(device, input_connecting_bind_group.buffer.clone());
+
+        // Create all the buffers necessary in this layer
         let (
-            bind_group_layout,
-            bind_group,
-            output_bind_group_layout,
-            output_bind_group,
+            dimensions_buffer,
             weights_buffer,
             bias_buffer,
+            activation_function_buffer,
             intermediary_buffer,
             output_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
         ) = {
-            let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Dense Layer Bind Group Layout"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        // Weights buffer
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        // Bias Buffer
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        // Dimensions
-                        binding: 2,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        // Activation Function
-                        binding: 3,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        // Intermediary Buffer
-                        binding: 4,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-            });
+            let dimensions_buffer = {
+                let mut dimensions = Vec::new();
+                dimensions.push(input_connecting_bind_group.num_inputs as u32);
+                dimensions.push(num_nodes as u32);
+
+                device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Dense Layer Dimensions Buffer"),
+                    contents: bytemuck::cast_slice(&dimensions),
+                    usage: BufferUsages::UNIFORM,
+                })
+            };
 
             // Initialize the weights matrix buffer with random values from -1.0 to 1.0
             // containts a matrix with num_nodes sets of weights
@@ -164,11 +427,11 @@ impl DenseLayer {
                     }
                 }
 
-                device.create_buffer_init(&BufferInitDescriptor {
+                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Weights Buffer"),
                     contents: bytemuck::cast_slice(&weights),
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                })
+                }))
             };
 
             // Initialize the bias vector buffer with random values from -1.0 to 1.0
@@ -186,18 +449,6 @@ impl DenseLayer {
                     label: Some("Dense Layer Bias Buffer"),
                     contents: bytemuck::cast_slice(&biases),
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                })
-            };
-
-            let dimensions_buffer = {
-                let mut dimensions = Vec::new();
-                dimensions.push(input_connecting_bind_group.num_inputs as u32);
-                dimensions.push(num_nodes as u32);
-
-                device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Dimensions Buffer"),
-                    contents: bytemuck::cast_slice(&dimensions),
-                    usage: BufferUsages::UNIFORM,
                 })
             };
 
@@ -258,134 +509,12 @@ impl DenseLayer {
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             });
 
-            let bind_group = device.create_bind_group(&BindGroupDescriptor {
-                label: Some("Dense Layer Bind Group"),
-                layout: &bind_group_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: weights_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: bias_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: dimensions_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: activation_function_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 4,
-                        resource: intermediary_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-            let output_bind_group_layout =
-                device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: Some("Dense Layer Output Bind Group Layout"),
-                    entries: &[BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                });
-
-            let output_buffer = device.create_buffer(&BufferDescriptor {
+            let output_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
                 label: Some("Dense Layer Output Buffer"),
                 mapped_at_creation: false,
                 size: num_nodes * std::mem::size_of::<f32>() as u64,
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            });
-
-            let output_bind_group = device.create_bind_group(&BindGroupDescriptor {
-                label: Some("Dense Layer Output Bind Group"),
-                layout: &output_bind_group_layout,
-                entries: &[BindGroupEntry {
-                    binding: 0,
-                    resource: output_buffer.as_entire_binding(),
-                }],
-            });
-
-            (
-                bind_group_layout,
-                bind_group,
-                output_bind_group_layout,
-                output_bind_group,
-                weights_buffer,
-                bias_buffer,
-                intermediary_buffer,
-                output_buffer,
-            )
-        };
-
-        let (
-            back_propogation_bind_group_layout,
-            back_propogation_bind_group,
-            l_1_norm_buffer,
-            frobenius_norm_buffer,
-            regularization_buffer,
-            regularization_output_buffer,
-        ) = {
-            let back_propogation_bind_group_layout =
-                device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: Some("Dense Layer Back Propogation Bind Group Layout"),
-                    entries: &[
-                        BindGroupLayoutEntry {
-                            // L1 Norm Buffer
-                            binding: 0,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        BindGroupLayoutEntry {
-                            // Frobenius Norm Buffer
-                            binding: 1,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        BindGroupLayoutEntry {
-                            // Regularization Buffer
-                            binding: 2,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        BindGroupLayoutEntry {
-                            // Regularization Output Buffer
-                            binding: 3,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                });
+            }));
 
             let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
                 label: Some("Dense Layer L1 Norm Buffer"),
@@ -401,7 +530,7 @@ impl DenseLayer {
                 usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
             });
 
-            let regularization_buffer = device.create_buffer(&BufferDescriptor {
+            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
                 label: Some("Dense Layer Regularization Buffer"),
                 mapped_at_creation: false,
                 size: std::mem::size_of::<(u32, f32, f32)>() as u64,
@@ -417,52 +546,51 @@ impl DenseLayer {
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
-            let back_propogation_bind_group = device.create_bind_group(&BindGroupDescriptor {
-                label: Some("Dense Layer Back Propogation Bind Group"),
-                layout: &back_propogation_bind_group_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: l_1_norm_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: frobenius_norm_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: regularization_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 3,
-                        resource: regularization_output_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
             (
-                back_propogation_bind_group_layout,
-                back_propogation_bind_group,
+                dimensions_buffer,
+                weights_buffer,
+                bias_buffer,
+                activation_function_buffer,
+                intermediary_buffer,
+                output_buffer,
                 l_1_norm_buffer,
                 frobenius_norm_buffer,
-                regularization_buffer,
+                regularization_info_buffer,
                 regularization_output_buffer,
             )
         };
 
+        let (feed_forward_bind_group_layout, feed_forward_bind_group) =
+            create_feed_forward_bind_group(
+                device,
+                &dimensions_buffer,
+                &weights_buffer,
+                &bias_buffer,
+                &activation_function_buffer,
+                &intermediary_buffer,
+                &output_buffer,
+            );
+
+        let (back_propogation_bind_group_layout, back_propogation_bind_group) =
+            create_back_propogation_bind_group(
+                device,
+                &l_1_norm_buffer,
+                &frobenius_norm_buffer,
+                &regularization_info_buffer,
+                &regularization_output_buffer,
+                &dimensions_buffer,
+                &weights_buffer,
+            );
+
         // Create the pipeline from the bind group layout
-        let pipeline = {
+        let feed_forward_pipeline = {
             let shader: ShaderModule = device.create_shader_module(include_wgsl!(
                 "../shaders/dense_layer/dense_layer_feed_forward.wgsl"
             ));
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Dense Layer Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    input_connecting_bind_group.bind_group_layout.as_ref(),
-                    &bind_group_layout,
-                    &output_bind_group_layout,
-                ],
+                bind_group_layouts: &[&input_bind_group_layout, &feed_forward_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -484,7 +612,7 @@ impl DenseLayer {
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Dense Layer Regularization Compute Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout, &back_propogation_bind_group_layout],
+                bind_group_layouts: &[&back_propogation_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -506,27 +634,24 @@ impl DenseLayer {
             weights_buffer,
             bias_buffer,
             intermediary_buffer,
-            output_buffer: Rc::new(output_buffer),
+            output_buffer,
             // ------------------------------------
             l_1_norm_buffer,
             frobenius_norm_buffer,
-            regularization_buffer,
+            regularization_info_buffer,
             regularization_output_buffer,
             // ------------------------------------
             input_buffer: input_connecting_bind_group.buffer.clone(),
-            input_bind_group_layout: input_connecting_bind_group.bind_group_layout.clone(),
-            input_bind_group: input_connecting_bind_group.bind_group.clone(),
+            input_bind_group_layout,
+            input_bind_group,
             // ------------------------------------
-            bind_group_layout,
-            bind_group,
-            // ------------------------------------
-            output_bind_group_layout: Rc::new(output_bind_group_layout),
-            output_bind_group: Rc::new(output_bind_group),
+            feed_forward_bind_group_layout,
+            feed_forward_bind_group,
             // ------------------------------------
             back_propogation_bind_group_layout,
             back_propogation_bind_group,
             // ------------------------------------
-            pipeline,
+            feed_forward_pipeline,
             regularization_pipeline,
         }
     }
@@ -555,12 +680,11 @@ impl DenseLayer {
             });
 
             // Set the pipeline
-            compute_pass.set_pipeline(&self.pipeline);
+            compute_pass.set_pipeline(&self.feed_forward_pipeline);
 
             // Set the bind group
-            compute_pass.set_bind_group(0, self.input_bind_group.as_ref(), &[]);
-            compute_pass.set_bind_group(1, &self.bind_group, &[]);
-            compute_pass.set_bind_group(2, self.output_bind_group.as_ref(), &[]);
+            compute_pass.set_bind_group(0, &self.input_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.feed_forward_bind_group, &[]);
 
             // Dispatch the workgroups
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
@@ -689,7 +813,7 @@ impl DenseLayer {
                 _ = self.generate_weights_l_1_norm(device, queue);
 
                 queue.write_buffer(
-                    &self.regularization_buffer,
+                    &self.regularization_info_buffer,
                     0,
                     bytemuck::cast_slice(&[RegRepr {
                         function: 0,
@@ -702,7 +826,7 @@ impl DenseLayer {
                 _ = self.generate_weights_frobenius_norm(device, queue);
 
                 queue.write_buffer(
-                    &self.regularization_buffer,
+                    &self.regularization_info_buffer,
                     0,
                     bytemuck::cast_slice(&[RegRepr {
                         function: 1,
@@ -716,7 +840,7 @@ impl DenseLayer {
                 _ = self.generate_weights_frobenius_norm(device, queue);
 
                 queue.write_buffer(
-                    &self.regularization_buffer,
+                    &self.regularization_info_buffer,
                     0,
                     bytemuck::cast_slice(&[RegRepr {
                         function: 2,
@@ -747,8 +871,7 @@ impl DenseLayer {
             compute_pass.set_pipeline(&self.regularization_pipeline);
 
             // Set the bind groups
-            compute_pass.set_bind_group(0, &self.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.back_propogation_bind_group, &[]);
+            compute_pass.set_bind_group(0, &self.back_propogation_bind_group, &[]);
 
             // Dispatch the workgroups
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
@@ -770,16 +893,14 @@ impl DenseLayer {
     }
 }
 
-impl Layer for DenseLayer {
-    fn get_connecting_bind_group(&self) -> Rc<BindGroup> {
-        self.output_bind_group.clone()
-    }
-
-    fn get_connecting_bind_group_layout(&self) -> Rc<BindGroupLayout> {
-        self.output_bind_group_layout.clone()
-    }
-
-    fn get_connecting_buffer(&self) -> Rc<Buffer> {
+impl FeedForwardLayer for DenseLayer {
+    fn get_output_buffer(&self) -> Rc<Buffer> {
         self.output_buffer.clone()
+    }
+}
+
+impl BackPropogationLayer for DenseLayer {
+    fn get_connecting_weight_buffer(&self) -> Rc<Buffer> {
+        self.weights_buffer.clone()
     }
 }

@@ -1,10 +1,14 @@
 // Inputs from the previous layer
 @group(0) @binding(0)
-var<storage, read_write> input_buffer: array<f32>;
+var<storage, read> input_buffer: array<f32>;
+
+// Dimensions of the weights matrix
+@group(1) @binding(0)
+var<uniform> dims: vec2<u32>;
 
 // Weights of the current layer
-@group(1) @binding(0)
-var<storage, read_write> weights_buffer: array<f32>;
+@group(1) @binding(1)
+var<storage, read> weights_buffer: array<f32>;
 
 struct Bias {
     bias: f32,
@@ -12,12 +16,9 @@ struct Bias {
 }
 
 // Biases of the current layer
-@group(1) @binding(1)
+@group(1) @binding(2)
 var<storage, read> bias_buffer: array<Bias>;
 
-// Dimensions of the weights matrix
-@group(1) @binding(2)
-var<uniform> dims: vec2<u32>;
 
 struct ActivationFunctionDescriptor {
     function_type: u32,
@@ -35,7 +36,7 @@ var<uniform> activation_function: ActivationFunctionDescriptor;
 var<storage, read_write> intermediary_buffer: array<f32>;
 
 // Output buffer after the activation function is applied
-@group(2) @binding(0)
+@group(1) @binding(5)
 var<storage, read_write> output_buffer: array<f32>;
 
 

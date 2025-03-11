@@ -1,24 +1,7 @@
 @group(0) @binding(0)
-var<storage, read_write> output_buffer: array<f32>;
-
-@group(0) @binding(1)
-var<uniform> dims: vec2<u32>;
-
-@group(0) @binding(2)
-var<storage, read> weights_buffer: array<f32>;
-
-struct Bias {
-    bias: f32,
-    bias_weight: f32,
-}
-
-@group(0) @binding(3)
-var<storage, read> bias_buffer: array<Bias>;
-
-@group(1) @binding(0)
 var<uniform> l_1_norm_uniform: f32;
 
-@group(1) @binding(1)
+@group(0) @binding(1)
 var<uniform> frobenius_norm_uniform: f32;
 
 struct RegularizationFunction {
@@ -27,12 +10,17 @@ struct RegularizationFunction {
     hyper_parameter_2: f32,
 }
 
-@group(1) @binding(2)
-var<uniform> regularization_buffer: RegularizationFunction;
+@group(0) @binding(2)
+var<uniform> regularization_info_buffer: RegularizationFunction;
 
-@group(1) @binding(3)
+@group(0) @binding(3)
 var<storage, read_write> regularization_output_buffer: array<f32>;
 
+@group(0) @binding(4)
+var<uniform> dims: vec2<u32>;
+
+@group(0) @binding(5)
+var<storage, read> weights_buffer: array<f32>;
 
 const LASSO: u32 = 0;
 const RIDGE: u32 = 1;
@@ -53,10 +41,10 @@ fn output_layer_regularization_main(
         let index = row * n + col;
 
         let weight = weights_buffer[index];
-        let lambda_1 = regularization_buffer.hyper_parameter_1;
-        let lambda_2 = regularization_buffer.hyper_parameter_2;
+        let lambda_1 = regularization_info_buffer.hyper_parameter_1;
+        let lambda_2 = regularization_info_buffer.hyper_parameter_2;
 
-        if (regularization_buffer.function_type == LASSO) {
+        if (regularization_info_buffer.function_type == LASSO) {
             var grad: f32 = 0.0;
 
             // Finding the derivative of the L1 Norm
@@ -67,9 +55,9 @@ fn output_layer_regularization_main(
             }
 
             regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight;
-        } else if (regularization_buffer.function_type == RIDGE) {
+        } else if (regularization_info_buffer.function_type == RIDGE) {
             regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
-        } else if (regularization_buffer.function_type == ELASTIC_NET_REGRESSION) {
+        } else if (regularization_info_buffer.function_type == ELASTIC_NET_REGRESSION) {
             var grad: f32 = 0.0;
 
             // Finding the derivative of the L1 Norm
