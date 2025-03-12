@@ -402,8 +402,8 @@ fn create_back_propogation_bind_group(
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct OutputLayer {
-    num_inputs: u64,
-    num_outputs: u64,
+    pub num_inputs: u64,
+    pub num_outputs: u64,
 
     // Buffers associated in feed forward computation
     weights_buffer: Rc<Buffer>,

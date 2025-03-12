@@ -7,8 +7,8 @@ use crate::{
 };
 
 use super::{
-    BackPropogationLayer, FeedForwardConnection, FeedForwardLayer, WORK_GROUP_SIZE,
-    activation::ActivationFunction, bias::Bias, compute_workgroup_size,
+    BackPropogationConnection, BackPropogationLayer, FeedForwardConnection, FeedForwardLayer,
+    WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias, compute_workgroup_size,
     regularization::Regularization,
 };
 use bytemuck::{Pod, Zeroable};
@@ -330,12 +330,57 @@ fn create_back_propogation_bind_group(
     )
 }
 
+/// Creates the bind group for the link to the next layers weights to be used
+/// during back propogation
+///
+/// # Arguments
+///
+/// * `device` - reference to the wgpu device to create the bind group
+/// * `next_layer_weights_buffer` - reference to the buffer from the next layer
+///
+/// # Returns
+///
+/// `(BindGroupLayout, BindGroup)` tuple with the bind group information for the next layers weights
+fn create_next_layer_weights_bind_group(
+    device: &Device,
+    next_layer_weights_buffer: &Buffer,
+) -> (BindGroupLayout, BindGroup) {
+    let next_layer_weights_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Dense Layer Next Layer Weights Bind Group Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+    let next_layer_weights_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("Dense Layer Next Layer Weights Bind Group"),
+        layout: &next_layer_weights_bind_group_layout,
+        entries: &[BindGroupEntry {
+            binding: 0,
+            resource: next_layer_weights_buffer.as_entire_binding(),
+        }],
+    });
+
+    (
+        next_layer_weights_bind_group_layout,
+        next_layer_weights_bind_group,
+    )
+}
+
 /// Dense layer struct used in neural net
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct DenseLayer {
     pub num_nodes: u64,
-    num_inputs: u64,
+    pub num_inputs: u64,
     activation_function: ActivationFunction,
 
     // Feed forward buffers
@@ -366,6 +411,11 @@ pub struct DenseLayer {
     // GPU pipeline information
     feed_forward_pipeline: ComputePipeline,
     regularization_pipeline: ComputePipeline,
+
+    // Buffer information that needs to be linked after creation
+    next_layer_weights_buffer: Option<Rc<Buffer>>,
+    next_layer_weights_bind_group_layout: Option<BindGroupLayout>,
+    next_layer_weights_bind_group: Option<BindGroup>,
 }
 
 impl DenseLayer {
@@ -653,7 +703,35 @@ impl DenseLayer {
             // ------------------------------------
             feed_forward_pipeline,
             regularization_pipeline,
+            // ------------------------------------
+            next_layer_weights_buffer: None,
+            next_layer_weights_bind_group_layout: None,
+            next_layer_weights_bind_group: None,
         }
+    }
+
+    /// Links the weights from the next layer to this layer to be used
+    /// during back propogation
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device to create bind groups
+    /// * `back_propogation_connection` - Link Descriptor to the next layers weights
+    pub fn link_next_layer_weights(
+        &mut self,
+        device: &Device,
+        back_propogation_connection: &BackPropogationConnection,
+    ) {
+        self.next_layer_weights_buffer = Some(back_propogation_connection.weights_buffer.clone());
+
+        let (next_layer_weights_bind_group_layout, next_layer_weights_bind_group) =
+            create_next_layer_weights_bind_group(
+                device,
+                &back_propogation_connection.weights_buffer,
+            );
+
+        self.next_layer_weights_bind_group_layout = Some(next_layer_weights_bind_group_layout);
+        self.next_layer_weights_bind_group = Some(next_layer_weights_bind_group);
     }
 
     /// Runs the feed forward algorithm through the dense layer and stores

@@ -3,7 +3,7 @@ use std::rc::Rc;
 #[allow(unused_imports)]
 use log::*;
 
-use wgpu::Buffer;
+use wgpu::{Buffer, Device};
 
 // Module for inner structures in the Neural Network
 use crate::layer_structs::*;
@@ -51,6 +51,12 @@ pub struct FeedForwardConnection {
     pub num_inputs: u64,
 }
 
+pub struct BackPropogationConnection {
+    pub weights_buffer: Rc<Buffer>,
+    pub num_inputs: u64,
+    pub num_outputs: u64,
+}
+
 #[derive(Debug)]
 pub enum NeuralNetLayer {
     Input(InputLayer),
@@ -70,7 +76,21 @@ impl NeuralNetLayer {
                 buffer: dense_layer.get_output_buffer(),
                 num_inputs: dense_layer.num_nodes,
             }),
-            Output(_) => None,
+            _ => None,
+        }
+    }
+
+    pub fn link_next_layer_weights(
+        &mut self,
+        device: &Device,
+        back_propogation_connection: BackPropogationConnection,
+    ) {
+        use NeuralNetLayer::*;
+        match self {
+            Dense(dense_layer) => {
+                dense_layer.link_next_layer_weights(device, &back_propogation_connection);
+            }
+            _ => {}
         }
     }
 }

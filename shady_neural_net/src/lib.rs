@@ -6,7 +6,10 @@ use std::{error::Error, fmt::Display};
 #[allow(unused_imports)]
 use log::*;
 
-use layer::{DenseLayer, InputLayer, NeuralNetLayer, OutputLayer};
+use layer::{
+    BackPropogationConnection, BackPropogationLayer, DenseLayer, InputLayer, NeuralNetLayer,
+    OutputLayer,
+};
 use wgpu::{
     Backends, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
     PowerPreference, Queue, RequestAdapterOptions,
@@ -149,25 +152,29 @@ impl NeuralNet {
         }
 
         // WARN Unwrapping because at this point the buffers should already exist
-        let connecting_buffer = {
-            match self.hidden_layers.last() {
-                Some(hidden_layer) => hidden_layer.get_connecting_bind_group().unwrap(),
-                None => self
-                    .input_layer
-                    .as_ref()
-                    .unwrap()
-                    .get_connecting_bind_group()
-                    .unwrap(),
-            }
+        let previous_layer = match self.hidden_layers.last_mut() {
+            Some(hidden_layer) => hidden_layer,
+            None => self.input_layer.as_mut().unwrap(),
         };
 
-        self.hidden_layers
-            .push(NeuralNetLayer::Dense(DenseLayer::new(
-                &connecting_buffer,
-                num_nodes,
-                activation_function,
-                &self.device,
-            )));
+        let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
+        let new_layer = DenseLayer::new(
+            &connecting_buffer,
+            num_nodes,
+            activation_function,
+            &self.device,
+        );
+
+        previous_layer.link_next_layer_weights(
+            &self.device,
+            BackPropogationConnection {
+                weights_buffer: new_layer.get_connecting_weight_buffer(),
+                num_inputs: new_layer.num_inputs,
+                num_outputs: new_layer.num_nodes,
+            },
+        );
+
+        self.hidden_layers.push(NeuralNetLayer::Dense(new_layer));
 
         Ok(self)
     }
@@ -176,16 +183,25 @@ impl NeuralNet {
         &mut self,
         num_outputs: u64,
     ) -> Result<&mut Self, NoHiddenLayersAddedError> {
-        let connecting_buffer = match self.hidden_layers.last() {
-            Some(hidden_layer) => hidden_layer.get_connecting_bind_group().unwrap(),
-            None => return Err(NoHiddenLayersAddedError),
+        // WARN Unwrapping because at this point the buffers should already exist
+        let previous_layer = match self.hidden_layers.last_mut() {
+            Some(hidden_layer) => hidden_layer,
+            None => self.input_layer.as_mut().unwrap(),
         };
 
-        self.output_layer = Some(NeuralNetLayer::Output(OutputLayer::new(
-            &connecting_buffer,
-            num_outputs,
+        let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
+        let new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
+
+        previous_layer.link_next_layer_weights(
             &self.device,
-        )));
+            BackPropogationConnection {
+                weights_buffer: new_output_layer.get_connecting_weight_buffer(),
+                num_inputs: new_output_layer.num_inputs,
+                num_outputs: new_output_layer.num_outputs,
+            },
+        );
+
+        self.output_layer = Some(NeuralNetLayer::Output(new_output_layer));
 
         Ok(self)
     }
