@@ -168,9 +168,9 @@ impl NeuralNet {
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                weights_buffer: new_layer.get_connecting_weight_buffer(),
-                num_inputs: new_layer.num_inputs,
-                num_outputs: new_layer.num_nodes,
+                gradient_coefficient_buffer: new_layer.get_gradient_coefficient_buffer(),
+                weights_buffer: new_layer.get_weights_buffer(),
+                dimensions_buffer: new_layer.get_dimensions_buffer(),
             },
         );
 
@@ -195,9 +195,9 @@ impl NeuralNet {
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                weights_buffer: new_output_layer.get_connecting_weight_buffer(),
-                num_inputs: new_output_layer.num_inputs,
-                num_outputs: new_output_layer.num_outputs,
+                gradient_coefficient_buffer: new_output_layer.get_gradient_coefficient_buffer(),
+                weights_buffer: new_output_layer.get_weights_buffer(),
+                dimensions_buffer: new_output_layer.get_dimensions_buffer(),
             },
         );
 
@@ -267,7 +267,7 @@ impl NeuralNet {
 
         for layer in self.hidden_layers.iter() {
             if let NeuralNetLayer::Dense(dense_layer) = layer {
-                let regularization_weights = dense_layer.generate_regulariaztion_function(
+                dense_layer.back_propogate(
                     Regularization {
                         function: RegularizationFunction::ElasticNetRegression,
                         hyper_parameter_1: 0.1,
@@ -276,11 +276,6 @@ impl NeuralNet {
                     &self.device,
                     &self.queue,
                 );
-
-                println!(
-                    "Dense Regularization Weights: {:#?}",
-                    regularization_weights,
-                )
             }
         }
     }

@@ -26,7 +26,7 @@ var<storage, read> weights_buffer: array<f32>;
 var<storage, read_write> gradient_buffer: array<f32>;
 
 @group(0) @binding(7)
-var<storage, read> loss_function_gradient_buffer: array<f32>;
+var<storage, read> gradient_coefficient_buffer: array<f32>;
 
 
 @group(1) @binding(0)
@@ -38,7 +38,7 @@ const ELASTIC_NET_REGRESSION: u32 = 2;
 
 
 fn calculate_gradient(index: u32, row: u32) -> f32 {
-    let dJdo = loss_function_gradient_buffer[index];
+    let dJdo = gradient_coefficient_buffer[index];
     let h = input_buffer[row];
     let regularization = regularization_output_buffer[index];
 

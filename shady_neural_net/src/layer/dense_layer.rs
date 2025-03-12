@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     layer::{D2_WORK_GROUP_SIZE, compute_2d_workgroup_size},
     regularization::RegularizationFunction,
-    utils::{get_buffer, read_buffer},
+    utils::{get_buffer, print_buffer, read_buffer},
 };
 
 use super::{
@@ -217,6 +217,8 @@ fn create_back_propogation_bind_group(
     frobenius_norm_buffer: &Buffer,
     regularization_info_buffer: &Buffer,
     regularization_output_buffer: &Buffer,
+    gradient_buffer: &Buffer,
+    gradient_coefficient_buffer: &Buffer,
     dimensions_buffer: &Buffer,
     weights_buffer: &Buffer,
 ) -> (BindGroupLayout, BindGroup) {
@@ -290,6 +292,28 @@ fn create_back_propogation_bind_group(
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    // Gradient Buffer
+                    binding: 6,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Gradient Coefficient Buffer
+                    binding: 7,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -321,6 +345,14 @@ fn create_back_propogation_bind_group(
                 binding: 5,
                 resource: weights_buffer.as_entire_binding(),
             },
+            BindGroupEntry {
+                binding: 6,
+                resource: gradient_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 7,
+                resource: gradient_coefficient_buffer.as_entire_binding(),
+            },
         ],
     });
 
@@ -341,18 +373,100 @@ fn create_back_propogation_bind_group(
 /// # Returns
 ///
 /// `(BindGroupLayout, BindGroup)` tuple with the bind group information for the next layers weights
-fn create_next_layer_weights_bind_group(
+fn create_next_layer_bind_group(
     device: &Device,
+    next_layer_gradient_coefficient_buffer: &Buffer,
     next_layer_weights_buffer: &Buffer,
+    next_layer_dimensions_buffer: &Buffer,
 ) -> (BindGroupLayout, BindGroup) {
     let next_layer_weights_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Dense Layer Next Layer Weights Bind Group Layout"),
+            label: Some("Dense Layer Next Layer Gradient Coefficient Bind Group Layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    // Next Layer Gradient Coefficient Buffer
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Next Layer Weights Buffer
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Next Layer Dimensions Buffer
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+    let next_layer_weights_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("Dense Layer Next Layer Weights Bind Group"),
+        layout: &next_layer_weights_bind_group_layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: next_layer_gradient_coefficient_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: next_layer_weights_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: next_layer_dimensions_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    (
+        next_layer_weights_bind_group_layout,
+        next_layer_weights_bind_group,
+    )
+}
+
+/// Creates a bind group for the Gradient Coefficient to be computed
+///
+/// # Arguments
+///
+/// * `device` - reference to the wgpu device to create the bind group
+/// * `gradient_coefficient_buffer` - reference to the gradient coefficient buffer
+///
+/// # Returns
+///
+/// `(BindGroupLayout, BindGroup)` tuple with the bind group information for the gradient coefficient
+fn create_gradient_coefficient_bind_group(
+    device: &Device,
+    gradient_coefficient_buffer: &Buffer,
+) -> (BindGroupLayout, BindGroup) {
+    let gradient_coefficient_bind_group_layout =
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Dense Layer Gradient Coefficient Bind Group Layout"),
             entries: &[BindGroupLayoutEntry {
+                // Gradient Coefficient Buffer
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
+                    ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -360,18 +474,18 @@ fn create_next_layer_weights_bind_group(
             }],
         });
 
-    let next_layer_weights_bind_group = device.create_bind_group(&BindGroupDescriptor {
-        label: Some("Dense Layer Next Layer Weights Bind Group"),
-        layout: &next_layer_weights_bind_group_layout,
+    let gradient_coefficient_bind_group = device.create_bind_group(&BindGroupDescriptor {
+        label: Some("Dense Layer Gradient Coefficient Bind Group"),
+        layout: &gradient_coefficient_bind_group_layout,
         entries: &[BindGroupEntry {
             binding: 0,
-            resource: next_layer_weights_buffer.as_entire_binding(),
+            resource: gradient_coefficient_buffer.as_entire_binding(),
         }],
     });
 
     (
-        next_layer_weights_bind_group_layout,
-        next_layer_weights_bind_group,
+        gradient_coefficient_bind_group_layout,
+        gradient_coefficient_bind_group,
     )
 }
 
@@ -384,6 +498,7 @@ pub struct DenseLayer {
     activation_function: ActivationFunction,
 
     // Feed forward buffers
+    dimensions_buffer: Rc<Buffer>,
     weights_buffer: Rc<Buffer>,
     bias_buffer: Buffer,
     intermediary_buffer: Buffer,
@@ -394,6 +509,8 @@ pub struct DenseLayer {
     frobenius_norm_buffer: Buffer,
     regularization_info_buffer: Buffer,
     regularization_output_buffer: Buffer,
+    gradient_buffer: Buffer,
+    gradient_coefficient_buffer: Rc<Buffer>,
 
     // Input Bind group information
     input_buffer: Rc<Buffer>,
@@ -410,12 +527,19 @@ pub struct DenseLayer {
 
     // GPU pipeline information
     feed_forward_pipeline: ComputePipeline,
-    regularization_pipeline: ComputePipeline,
+    coefficient_forming_pipeline: Option<ComputePipeline>,
+    regularization_pipeline: Option<ComputePipeline>,
 
     // Buffer information that needs to be linked after creation
+    next_layer_gradient_coefficient_buffer: Option<Rc<Buffer>>,
     next_layer_weights_buffer: Option<Rc<Buffer>>,
-    next_layer_weights_bind_group_layout: Option<BindGroupLayout>,
-    next_layer_weights_bind_group: Option<BindGroup>,
+    next_layer_dimensions_buffer: Option<Rc<Buffer>>,
+    next_layer_bind_group_layout: Option<BindGroupLayout>,
+    next_layer_bind_group: Option<BindGroup>,
+
+    // Buffer information that is needed to get the gradient coefficient
+    coefficient_forming_bind_group_layout: BindGroupLayout,
+    coefficient_forming_bind_group: BindGroup,
 }
 
 impl DenseLayer {
@@ -452,17 +576,19 @@ impl DenseLayer {
             frobenius_norm_buffer,
             regularization_info_buffer,
             regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
         ) = {
             let dimensions_buffer = {
                 let mut dimensions = Vec::new();
                 dimensions.push(input_connecting_bind_group.num_inputs as u32);
                 dimensions.push(num_nodes as u32);
 
-                device.create_buffer_init(&BufferInitDescriptor {
+                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Dimensions Buffer"),
                     contents: bytemuck::cast_slice(&dimensions),
                     usage: BufferUsages::UNIFORM,
-                })
+                }))
             };
 
             // Initialize the weights matrix buffer with random values from -1.0 to 1.0
@@ -596,6 +722,22 @@ impl DenseLayer {
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
+            let gradient_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Gradient Buffer"),
+                mapped_at_creation: false,
+                size: input_connecting_bind_group.num_inputs
+                    * num_nodes
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Gradient Coefficient Buffer"),
+                mapped_at_creation: false,
+                size: num_nodes * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            }));
+
             (
                 dimensions_buffer,
                 weights_buffer,
@@ -607,6 +749,8 @@ impl DenseLayer {
                 frobenius_norm_buffer,
                 regularization_info_buffer,
                 regularization_output_buffer,
+                gradient_buffer,
+                gradient_coefficient_buffer,
             )
         };
 
@@ -628,9 +772,14 @@ impl DenseLayer {
                 &frobenius_norm_buffer,
                 &regularization_info_buffer,
                 &regularization_output_buffer,
+                &gradient_buffer,
+                &gradient_coefficient_buffer,
                 &dimensions_buffer,
                 &weights_buffer,
             );
+
+        let (coefficient_forming_bind_group_layout, coefficient_forming_bind_group) =
+            create_gradient_coefficient_bind_group(device, &gradient_coefficient_buffer);
 
         // Create the pipeline from the bind group layout
         let feed_forward_pipeline = {
@@ -654,6 +803,100 @@ impl DenseLayer {
             })
         };
 
+        Self {
+            num_nodes,
+            num_inputs: input_connecting_bind_group.num_inputs,
+            activation_function,
+            // ------------------------------------
+            dimensions_buffer,
+            weights_buffer,
+            bias_buffer,
+            intermediary_buffer,
+            output_buffer,
+            // ------------------------------------
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
+            // ------------------------------------
+            input_buffer: input_connecting_bind_group.buffer.clone(),
+            input_bind_group_layout,
+            input_bind_group,
+            // ------------------------------------
+            feed_forward_bind_group_layout,
+            feed_forward_bind_group,
+            // ------------------------------------
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            // ------------------------------------
+            feed_forward_pipeline,
+            coefficient_forming_pipeline: None,
+            regularization_pipeline: None,
+            // ------------------------------------
+            next_layer_gradient_coefficient_buffer: None,
+            next_layer_weights_buffer: None,
+            next_layer_dimensions_buffer: None,
+            next_layer_bind_group_layout: None,
+            next_layer_bind_group: None,
+            coefficient_forming_bind_group_layout,
+            coefficient_forming_bind_group,
+        }
+    }
+
+    /// Links the weights from the next layer to this layer to be used
+    /// during back propogation
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device to create bind groups
+    /// * `back_propogation_connection` - Link Descriptor to the next layers weights
+    pub fn link_next_layer(
+        &mut self,
+        device: &Device,
+        back_propogation_connection: &BackPropogationConnection,
+    ) {
+        self.next_layer_gradient_coefficient_buffer = Some(
+            back_propogation_connection
+                .gradient_coefficient_buffer
+                .clone(),
+        );
+
+        self.next_layer_weights_buffer = Some(back_propogation_connection.weights_buffer.clone());
+
+        let (next_layer_bind_group_layout, next_layer_bind_group) = create_next_layer_bind_group(
+            device,
+            &back_propogation_connection.gradient_coefficient_buffer,
+            &back_propogation_connection.weights_buffer,
+            &back_propogation_connection.dimensions_buffer,
+        );
+
+        // Create the pipeline to compute the coefficient
+        let coefficient_forming_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/dense_layer/dense_layer_coefficient_forming.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Dense Layer Coefficient Forming Compute Pipeline Layout"),
+                bind_group_layouts: &[
+                    &next_layer_bind_group_layout,
+                    &self.coefficient_forming_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Dense Layer Coefficient Forming Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("dense_layer_coefficient_forming_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
         // Create the pipeline to compute the regularization function
         let regularization_pipeline = {
             let shader = device.create_shader_module(include_wgsl!(
@@ -662,7 +905,11 @@ impl DenseLayer {
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Dense Layer Regularization Compute Pipeline Layout"),
-                bind_group_layouts: &[&back_propogation_bind_group_layout],
+                bind_group_layouts: &[
+                    &self.input_bind_group_layout,
+                    &self.back_propogation_bind_group_layout,
+                    &next_layer_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -676,62 +923,11 @@ impl DenseLayer {
             })
         };
 
-        Self {
-            num_nodes,
-            num_inputs: input_connecting_bind_group.num_inputs,
-            activation_function,
-            // ------------------------------------
-            weights_buffer,
-            bias_buffer,
-            intermediary_buffer,
-            output_buffer,
-            // ------------------------------------
-            l_1_norm_buffer,
-            frobenius_norm_buffer,
-            regularization_info_buffer,
-            regularization_output_buffer,
-            // ------------------------------------
-            input_buffer: input_connecting_bind_group.buffer.clone(),
-            input_bind_group_layout,
-            input_bind_group,
-            // ------------------------------------
-            feed_forward_bind_group_layout,
-            feed_forward_bind_group,
-            // ------------------------------------
-            back_propogation_bind_group_layout,
-            back_propogation_bind_group,
-            // ------------------------------------
-            feed_forward_pipeline,
-            regularization_pipeline,
-            // ------------------------------------
-            next_layer_weights_buffer: None,
-            next_layer_weights_bind_group_layout: None,
-            next_layer_weights_bind_group: None,
-        }
-    }
+        self.next_layer_bind_group_layout = Some(next_layer_bind_group_layout);
+        self.next_layer_bind_group = Some(next_layer_bind_group);
 
-    /// Links the weights from the next layer to this layer to be used
-    /// during back propogation
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - reference to the wgpu device to create bind groups
-    /// * `back_propogation_connection` - Link Descriptor to the next layers weights
-    pub fn link_next_layer_weights(
-        &mut self,
-        device: &Device,
-        back_propogation_connection: &BackPropogationConnection,
-    ) {
-        self.next_layer_weights_buffer = Some(back_propogation_connection.weights_buffer.clone());
-
-        let (next_layer_weights_bind_group_layout, next_layer_weights_bind_group) =
-            create_next_layer_weights_bind_group(
-                device,
-                &back_propogation_connection.weights_buffer,
-            );
-
-        self.next_layer_weights_bind_group_layout = Some(next_layer_weights_bind_group_layout);
-        self.next_layer_weights_bind_group = Some(next_layer_weights_bind_group);
+        self.regularization_pipeline = Some(regularization_pipeline);
+        self.coefficient_forming_pipeline = Some(coefficient_forming_pipeline);
     }
 
     /// Runs the feed forward algorithm through the dense layer and stores
@@ -867,16 +1063,7 @@ impl DenseLayer {
     /// * `regularization` - A regularization container that contains the regularization function and the hyper paramter
     /// * `device` - a reference to wgpu device to send commands to
     /// * `queue` - a reference to wgpu queue to send command with
-    ///
-    /// # Returns
-    ///
-    /// `Vec<f32>` of the computed value of the regularization function for this layer}
-    pub fn generate_regulariaztion_function(
-        &self,
-        regularization: Regularization,
-        device: &Device,
-        queue: &Queue,
-    ) -> Vec<f32> {
+    pub fn back_propogate(&self, regularization: Regularization, device: &Device, queue: &Queue) {
         // representation of struct to send to gpu
         #[repr(C)]
         #[derive(Pod, Zeroable, Copy, Clone)]
@@ -929,8 +1116,39 @@ impl DenseLayer {
             }
         }
 
+        // Compute the gradient coefficient first
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("Output Layer Regularization Command Encoder"),
+            label: Some("Dense Layer Gradient Coefficient Command Encoder"),
+        });
+
+        {
+            let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
+
+            // Begin the compute pass
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("Dense Layer Gradient Coefficient Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            // Set the pipeline
+            compute_pass.set_pipeline(self.coefficient_forming_pipeline.as_ref().unwrap());
+
+            // Set the Bind Groups
+            compute_pass.set_bind_group(0, self.next_layer_bind_group.as_ref().unwrap(), &[]);
+            compute_pass.set_bind_group(1, &self.coefficient_forming_bind_group, &[]);
+
+            // Dispatch the work groups
+            compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+        }
+
+        encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
+        device.poll(Maintain::Wait);
+
+        queue.submit(Some(encoder.finish()));
+
+        // The main Back propogation pass
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Dense Layer Back Propogation Command Encoder"),
         });
 
         {
@@ -941,15 +1159,17 @@ impl DenseLayer {
 
             // Begin the compute pass
             let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                label: Some("Output Layer Regulariation Compute Pass"),
+                label: Some("Dense Layer Back Propogation Compute Pass"),
                 timestamp_writes: None,
             });
 
             // Set the pipeline
-            compute_pass.set_pipeline(&self.regularization_pipeline);
+            compute_pass.set_pipeline(self.regularization_pipeline.as_ref().unwrap());
 
             // Set the bind groups
-            compute_pass.set_bind_group(0, &self.back_propogation_bind_group, &[]);
+            compute_pass.set_bind_group(0, &self.input_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.back_propogation_bind_group, &[]);
+            compute_pass.set_bind_group(2, self.next_layer_bind_group.as_ref().unwrap(), &[]);
 
             // Dispatch the workgroups
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
@@ -958,8 +1178,8 @@ impl DenseLayer {
         encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
         device.poll(Maintain::Wait);
 
-        let value = read_buffer(
-            &self.regularization_output_buffer,
+        let gradient = read_buffer(
+            &self.gradient_buffer,
             self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
             device,
             &mut encoder,
@@ -967,7 +1187,7 @@ impl DenseLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        get_buffer(&value, device)
+        print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
     }
 }
 
@@ -978,7 +1198,15 @@ impl FeedForwardLayer for DenseLayer {
 }
 
 impl BackPropogationLayer for DenseLayer {
-    fn get_connecting_weight_buffer(&self) -> Rc<Buffer> {
+    fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
+        self.gradient_coefficient_buffer.clone()
+    }
+
+    fn get_weights_buffer(&self) -> Rc<Buffer> {
         self.weights_buffer.clone()
+    }
+
+    fn get_dimensions_buffer(&self) -> Rc<Buffer> {
+        self.dimensions_buffer.clone()
     }
 }

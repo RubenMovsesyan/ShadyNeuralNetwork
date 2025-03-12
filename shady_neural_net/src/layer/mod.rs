@@ -43,7 +43,11 @@ pub trait FeedForwardLayer {
 
 // Trait for layers that have a back propogation connection to the previous layer
 pub trait BackPropogationLayer {
-    fn get_connecting_weight_buffer(&self) -> Rc<Buffer>;
+    fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer>;
+
+    fn get_weights_buffer(&self) -> Rc<Buffer>;
+
+    fn get_dimensions_buffer(&self) -> Rc<Buffer>;
 }
 
 pub struct FeedForwardConnection {
@@ -52,9 +56,9 @@ pub struct FeedForwardConnection {
 }
 
 pub struct BackPropogationConnection {
+    pub gradient_coefficient_buffer: Rc<Buffer>,
     pub weights_buffer: Rc<Buffer>,
-    pub num_inputs: u64,
-    pub num_outputs: u64,
+    pub dimensions_buffer: Rc<Buffer>,
 }
 
 #[derive(Debug)]
@@ -88,7 +92,7 @@ impl NeuralNetLayer {
         use NeuralNetLayer::*;
         match self {
             Dense(dense_layer) => {
-                dense_layer.link_next_layer_weights(device, &back_propogation_connection);
+                dense_layer.link_next_layer(device, &back_propogation_connection);
             }
             _ => {}
         }

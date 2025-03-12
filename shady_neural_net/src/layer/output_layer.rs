@@ -189,7 +189,7 @@ fn create_loss_fuction_bind_group(
     output_buffer: &Buffer,
     expected_values_buffer: &Buffer,
     loss_function_buffer: &Buffer,
-    loss_function_gradient_buffer: &Buffer,
+    gradient_coefficient_buffer: &Buffer,
 ) -> (BindGroupLayout, BindGroup) {
     let loss_function_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -240,7 +240,7 @@ fn create_loss_fuction_bind_group(
                     count: None,
                 },
                 BindGroupLayoutEntry {
-                    // Loss Function Gradient Buffer
+                    // Gradient Coefficient Buffer
                     binding: 4,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
@@ -275,7 +275,7 @@ fn create_loss_fuction_bind_group(
             },
             BindGroupEntry {
                 binding: 4,
-                resource: loss_function_gradient_buffer.as_entire_binding(),
+                resource: gradient_coefficient_buffer.as_entire_binding(),
             },
         ],
     });
@@ -302,7 +302,7 @@ fn create_back_propogation_bind_group(
     frobenius_norm_buffer: &Buffer,
     regularization_info_buffer: &Buffer,
     regularization_output_buffer: &Buffer,
-    loss_function_gradient_buffer: &Buffer,
+    graident_coefficient_buffer: &Buffer,
     gradient_buffer: &Buffer,
     dimensions_buffer: &Buffer,
     weights_buffer: &Buffer,
@@ -389,7 +389,7 @@ fn create_back_propogation_bind_group(
                     count: None,
                 },
                 BindGroupLayoutEntry {
-                    // Loss Function Gradient Buffer
+                    // Gradient Coefficient Buffer
                     binding: 7,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
@@ -436,7 +436,7 @@ fn create_back_propogation_bind_group(
             },
             BindGroupEntry {
                 binding: 7,
-                resource: loss_function_gradient_buffer.as_entire_binding(),
+                resource: graident_coefficient_buffer.as_entire_binding(),
             },
         ],
     });
@@ -454,6 +454,7 @@ pub struct OutputLayer {
     pub num_outputs: u64,
 
     // Buffers associated in feed forward computation
+    dimensions_buffer: Rc<Buffer>,
     weights_buffer: Rc<Buffer>,
     bias_buffer: Buffer,
     intermediary_buffer: Buffer,
@@ -461,7 +462,6 @@ pub struct OutputLayer {
 
     // Cost function buffer
     loss_function_buffer: Buffer,
-    loss_function_gradient_buffer: Buffer,
     expected_values_buffer: Buffer,
 
     // buffers used in back propogation
@@ -470,6 +470,7 @@ pub struct OutputLayer {
     regularization_info_buffer: Buffer,
     regularization_output_buffer: Buffer,
     gradient_buffer: Buffer,
+    gradient_coefficient_buffer: Rc<Buffer>,
 
     // Bind group information
     input_buffer: Rc<Buffer>,
@@ -526,8 +527,8 @@ impl OutputLayer {
             regularization_info_buffer,
             regularization_output_buffer,
             gradient_buffer,
+            gradient_coefficient_buffer,
             loss_function_buffer,
-            loss_function_gradient_buffer,
             expected_values_buffer,
         ) = {
             let dimensions_buffer = {
@@ -535,11 +536,11 @@ impl OutputLayer {
                 dimensions.push(feed_forward_input.num_inputs as u32);
                 dimensions.push(num_outputs as u32);
 
-                device.create_buffer_init(&BufferInitDescriptor {
+                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Dimensions Buffer"),
                     contents: bytemuck::cast_slice(&dimensions),
                     usage: BufferUsages::UNIFORM,
-                })
+                }))
             };
 
             let weights_buffer = {
@@ -626,15 +627,15 @@ impl OutputLayer {
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
-            let loss_function_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Loss Function Buffer"),
+            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Gradient Coefficient Buffer"),
                 mapped_at_creation: false,
                 size: num_outputs * std::mem::size_of::<f32>() as u64,
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
+            }));
 
-            let loss_function_gradient_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Loss Function Gradient Buffer"),
+            let loss_function_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Loss Function Buffer"),
                 mapped_at_creation: false,
                 size: num_outputs * std::mem::size_of::<f32>() as u64,
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
@@ -658,8 +659,8 @@ impl OutputLayer {
                 regularization_info_buffer,
                 regularization_output_buffer,
                 gradient_buffer,
+                gradient_coefficient_buffer,
                 loss_function_buffer,
-                loss_function_gradient_buffer,
                 expected_values_buffer,
             )
         };
@@ -681,7 +682,7 @@ impl OutputLayer {
                 &output_buffer,
                 &expected_values_buffer,
                 &loss_function_buffer,
-                &loss_function_gradient_buffer,
+                &gradient_coefficient_buffer,
             );
 
         let (back_propogation_bind_group_layout, back_propogation_bind_group) =
@@ -691,7 +692,7 @@ impl OutputLayer {
                 &frobenius_norm_buffer,
                 &regularization_info_buffer,
                 &regularization_output_buffer,
-                &loss_function_gradient_buffer,
+                &gradient_coefficient_buffer,
                 &gradient_buffer,
                 &dimensions_buffer,
                 &weights_buffer,
@@ -773,13 +774,13 @@ impl OutputLayer {
             num_inputs: feed_forward_input.num_inputs,
             num_outputs,
             // -------------------------------
+            dimensions_buffer,
             weights_buffer,
             bias_buffer,
             intermediary_buffer,
             output_buffer,
             // -------------------------------
             loss_function_buffer,
-            loss_function_gradient_buffer,
             expected_values_buffer,
             // -------------------------------
             l_1_norm_buffer,
@@ -787,6 +788,7 @@ impl OutputLayer {
             regularization_info_buffer,
             regularization_output_buffer,
             gradient_buffer,
+            gradient_coefficient_buffer,
             // -------------------------------
             input_buffer: feed_forward_input.buffer.clone(),
             input_bind_group_layout,
@@ -1110,7 +1112,15 @@ impl OutputLayer {
 }
 
 impl BackPropogationLayer for OutputLayer {
-    fn get_connecting_weight_buffer(&self) -> Rc<Buffer> {
+    fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
+        self.gradient_coefficient_buffer.clone()
+    }
+
+    fn get_weights_buffer(&self) -> Rc<Buffer> {
         self.weights_buffer.clone()
+    }
+
+    fn get_dimensions_buffer(&self) -> Rc<Buffer> {
+        self.dimensions_buffer.clone()
     }
 }
