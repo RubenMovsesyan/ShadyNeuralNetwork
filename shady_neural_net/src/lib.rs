@@ -253,7 +253,7 @@ impl NeuralNet {
     pub fn back_propogate(&self) {
         if let Some(layer) = &self.output_layer {
             if let NeuralNetLayer::Output(output_layer) = layer {
-                let regularization_weights = output_layer.generate_regularization_function(
+                output_layer.back_propogate(
                     Regularization {
                         function: RegularizationFunction::ElasticNetRegression,
                         hyper_parameter_1: 1.0,
@@ -261,11 +261,6 @@ impl NeuralNet {
                     },
                     &self.device,
                     &self.queue,
-                );
-
-                println!(
-                    "Output Regularization Weights: {:#?}",
-                    regularization_weights,
                 );
             }
         }

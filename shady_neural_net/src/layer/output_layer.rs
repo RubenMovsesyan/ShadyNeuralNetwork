@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::regularization::*;
-use crate::utils::{get_buffer, read_buffer};
+use crate::utils::{get_buffer, print_buffer, read_buffer};
 
 use super::{BackPropogationLayer, D2_WORK_GROUP_SIZE};
 use super::{FeedForwardConnection, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
@@ -189,6 +189,7 @@ fn create_loss_fuction_bind_group(
     output_buffer: &Buffer,
     expected_values_buffer: &Buffer,
     loss_function_buffer: &Buffer,
+    loss_function_gradient_buffer: &Buffer,
 ) -> (BindGroupLayout, BindGroup) {
     let loss_function_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -238,6 +239,17 @@ fn create_loss_fuction_bind_group(
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    // Loss Function Gradient Buffer
+                    binding: 4,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -260,6 +272,10 @@ fn create_loss_fuction_bind_group(
             BindGroupEntry {
                 binding: 3,
                 resource: loss_function_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: loss_function_gradient_buffer.as_entire_binding(),
             },
         ],
     });
@@ -286,6 +302,8 @@ fn create_back_propogation_bind_group(
     frobenius_norm_buffer: &Buffer,
     regularization_info_buffer: &Buffer,
     regularization_output_buffer: &Buffer,
+    loss_function_gradient_buffer: &Buffer,
+    gradient_buffer: &Buffer,
     dimensions_buffer: &Buffer,
     weights_buffer: &Buffer,
 ) -> (BindGroupLayout, BindGroup) {
@@ -359,6 +377,28 @@ fn create_back_propogation_bind_group(
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    // Gradient Buffer
+                    binding: 6,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Loss Function Gradient Buffer
+                    binding: 7,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -390,6 +430,14 @@ fn create_back_propogation_bind_group(
                 binding: 5,
                 resource: weights_buffer.as_entire_binding(),
             },
+            BindGroupEntry {
+                binding: 6,
+                resource: gradient_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 7,
+                resource: loss_function_gradient_buffer.as_entire_binding(),
+            },
         ],
     });
 
@@ -413,6 +461,7 @@ pub struct OutputLayer {
 
     // Cost function buffer
     loss_function_buffer: Buffer,
+    loss_function_gradient_buffer: Buffer,
     expected_values_buffer: Buffer,
 
     // buffers used in back propogation
@@ -420,6 +469,7 @@ pub struct OutputLayer {
     frobenius_norm_buffer: Buffer,
     regularization_info_buffer: Buffer,
     regularization_output_buffer: Buffer,
+    gradient_buffer: Buffer,
 
     // Bind group information
     input_buffer: Rc<Buffer>,
@@ -475,7 +525,9 @@ impl OutputLayer {
             frobenius_norm_buffer,
             regularization_info_buffer,
             regularization_output_buffer,
+            gradient_buffer,
             loss_function_buffer,
+            loss_function_gradient_buffer,
             expected_values_buffer,
         ) = {
             let dimensions_buffer = {
@@ -565,11 +617,27 @@ impl OutputLayer {
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
+            let gradient_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Ouput Layer Gradient Buffer"),
+                mapped_at_creation: false,
+                size: num_outputs
+                    * feed_forward_input.num_inputs
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
             let loss_function_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Cost Funciton Buffer"),
+                label: Some("Output Layer Loss Function Buffer"),
                 mapped_at_creation: false,
                 size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let loss_function_gradient_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Loss Function Gradient Buffer"),
+                mapped_at_creation: false,
+                size: num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
             let expected_values_buffer = device.create_buffer(&BufferDescriptor {
@@ -589,7 +657,9 @@ impl OutputLayer {
                 frobenius_norm_buffer,
                 regularization_info_buffer,
                 regularization_output_buffer,
+                gradient_buffer,
                 loss_function_buffer,
+                loss_function_gradient_buffer,
                 expected_values_buffer,
             )
         };
@@ -611,6 +681,7 @@ impl OutputLayer {
                 &output_buffer,
                 &expected_values_buffer,
                 &loss_function_buffer,
+                &loss_function_gradient_buffer,
             );
 
         let (back_propogation_bind_group_layout, back_propogation_bind_group) =
@@ -620,6 +691,8 @@ impl OutputLayer {
                 &frobenius_norm_buffer,
                 &regularization_info_buffer,
                 &regularization_output_buffer,
+                &loss_function_gradient_buffer,
+                &gradient_buffer,
                 &dimensions_buffer,
                 &weights_buffer,
             );
@@ -679,7 +752,10 @@ impl OutputLayer {
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Output Layer Regularization Compute Pipeline Layout"),
-                bind_group_layouts: &[&back_propogation_bind_group_layout],
+                bind_group_layouts: &[
+                    &back_propogation_bind_group_layout,
+                    &input_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -703,12 +779,14 @@ impl OutputLayer {
             output_buffer,
             // -------------------------------
             loss_function_buffer,
+            loss_function_gradient_buffer,
             expected_values_buffer,
             // -------------------------------
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
             regularization_output_buffer,
+            gradient_buffer,
             // -------------------------------
             input_buffer: feed_forward_input.buffer.clone(),
             input_bind_group_layout,
@@ -853,12 +931,7 @@ impl OutputLayer {
     /// # Returns
     ///
     /// `Vec<f32>` of the computed value of the regularization function for this layer
-    pub fn generate_regularization_function(
-        &self,
-        regularization: Regularization,
-        device: &Device,
-        queue: &Queue,
-    ) -> Vec<f32> {
+    pub fn back_propogate(&self, regularization: Regularization, device: &Device, queue: &Queue) {
         // representation of struct to send to gpu
         #[repr(C)]
         #[derive(Pod, Zeroable, Copy, Clone)]
@@ -929,6 +1002,7 @@ impl OutputLayer {
 
             // Set the bind groups
             compute_pass.set_bind_group(0, &self.back_propogation_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.input_bind_group, &[]);
 
             // Dispatch the workgroups
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
@@ -937,8 +1011,8 @@ impl OutputLayer {
         encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
         device.poll(Maintain::Wait);
 
-        let value = read_buffer(
-            &self.regularization_output_buffer,
+        let gradient = read_buffer(
+            &self.gradient_buffer,
             self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
             device,
             &mut encoder,
@@ -946,7 +1020,7 @@ impl OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        get_buffer(&value, device)
+        print_buffer(&gradient, device, "Output Layer Gradient Buffer");
     }
 
     /// Generates the frobenius norm of the weight matrix

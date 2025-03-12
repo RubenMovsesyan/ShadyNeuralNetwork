@@ -22,9 +22,28 @@ var<uniform> dims: vec2<u32>;
 @group(0) @binding(5)
 var<storage, read> weights_buffer: array<f32>;
 
+@group(0) @binding(6)
+var<storage, read_write> gradient_buffer: array<f32>;
+
+@group(0) @binding(7)
+var<storage, read> loss_function_gradient_buffer: array<f32>;
+
+
+@group(1) @binding(0)
+var<storage, read> input_buffer: array<f32>;
+
 const LASSO: u32 = 0;
 const RIDGE: u32 = 1;
 const ELASTIC_NET_REGRESSION: u32 = 2;
+
+
+fn calculate_gradient(index: u32, row: u32) -> f32 {
+    let dJdo = loss_function_gradient_buffer[index];
+    let h = input_buffer[row];
+    let regularization = regularization_output_buffer[index];
+
+    return dJdo * h + regularization;
+}
 
 
 @compute @workgroup_size(16, 16)
@@ -44,6 +63,7 @@ fn output_layer_regularization_main(
         let lambda_1 = regularization_info_buffer.hyper_parameter_1;
         let lambda_2 = regularization_info_buffer.hyper_parameter_2;
 
+        // Get the regularization term here based on the weights
         if (regularization_info_buffer.function_type == LASSO) {
             var grad: f32 = 0.0;
 
@@ -69,5 +89,8 @@ fn output_layer_regularization_main(
 
             regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
         }
+
+        // Compute the scalar for the output term
+        gradient_buffer[index] = calculate_gradient(index, row);
     }
 }
