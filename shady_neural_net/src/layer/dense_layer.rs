@@ -457,30 +457,66 @@ fn create_next_layer_bind_group(
 fn create_gradient_coefficient_bind_group(
     device: &Device,
     gradient_coefficient_buffer: &Buffer,
+    activation_function_buffer: &Buffer,
+    input_buffer: &Buffer,
 ) -> (BindGroupLayout, BindGroup) {
     let gradient_coefficient_bind_group_layout =
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Dense Layer Gradient Coefficient Bind Group Layout"),
-            entries: &[BindGroupLayoutEntry {
-                // Gradient Coefficient Buffer
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                BindGroupLayoutEntry {
+                    // Gradient Coefficient Buffer
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                BindGroupLayoutEntry {
+                    // Activation Function Buffer
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    // Input Buffer
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
 
     let gradient_coefficient_bind_group = device.create_bind_group(&BindGroupDescriptor {
         label: Some("Dense Layer Gradient Coefficient Bind Group"),
         layout: &gradient_coefficient_bind_group_layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: gradient_coefficient_buffer.as_entire_binding(),
-        }],
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: gradient_coefficient_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: activation_function_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: input_buffer.as_entire_binding(),
+            },
+        ],
     });
 
     (
@@ -779,7 +815,12 @@ impl DenseLayer {
             );
 
         let (coefficient_forming_bind_group_layout, coefficient_forming_bind_group) =
-            create_gradient_coefficient_bind_group(device, &gradient_coefficient_buffer);
+            create_gradient_coefficient_bind_group(
+                device,
+                &gradient_coefficient_buffer,
+                &activation_function_buffer,
+                input_connecting_bind_group.buffer.as_ref(),
+            );
 
         // Create the pipeline from the bind group layout
         let feed_forward_pipeline = {
@@ -943,6 +984,13 @@ impl DenseLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
+        let before = read_buffer(
+            &self.input_buffer,
+            self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         // Run the pipeline
         {
             let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
@@ -964,10 +1012,28 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let after_int = read_buffer(
+            &self.intermediary_buffer,
+            self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        let after_out = read_buffer(
+            &self.output_buffer,
+            self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         encoder.insert_debug_marker("Sync Point: Input Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+
+        print_buffer(&before, device, "Dense Layer Before");
+        print_buffer(&after_int, device, "Dense Layer Inter");
+        print_buffer(&after_out, device, "Dense Layer Output");
     }
 
     /// Generates the frobenius norm of the weight matrix
@@ -1187,7 +1253,14 @@ impl DenseLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
+        let total = self.num_inputs * self.num_nodes;
+
+        let output_string = format!(
+            "Dense Layer Gradient Buffer: inputs: {} nodes: {} total: {}",
+            self.num_inputs, self.num_nodes, total
+        );
+
+        print_buffer(&gradient, device, &output_string);
     }
 }
 

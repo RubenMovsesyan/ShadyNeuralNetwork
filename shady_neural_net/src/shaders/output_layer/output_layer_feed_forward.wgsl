@@ -30,10 +30,10 @@ fn output_layer_main(
     let m = dims.x;
     let n = dims.y;
 
-    if (row < m) {
+    if (row < n) {
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < n; k++) {
-            let index = row * n + k;
+        for (var k: u32 = 0; k < m; k++) {
+            let index = row * m + k;
             sum += weights_buffer[index] * input_buffer[k];
         }
 
@@ -48,26 +48,26 @@ fn output_layer_main(
     
     var max_val: f32 = intermediary_buffer[0];
 
-    for (var i = 0u; i < m; i++) {
+    for (var i = 0u; i < n; i++) {
         max_val = max(max_val, intermediary_buffer[i]);
     }
 
     workgroupBarrier();
 
-    if (row < m) {
+    if (row < n) {
         output_buffer[row] = exp(intermediary_buffer[row] - max_val);
     }
 
     workgroupBarrier();
     
     var exp_sum: f32 = 0.0;
-    for (var i = 0u; i < m; i++) {
+    for (var i = 0u; i < n; i++) {
         exp_sum += output_buffer[i];
     }
 
     workgroupBarrier();
     
-    if (row < m) {
+    if (row < n) {
         output_buffer[row] /= exp_sum;
     }
 

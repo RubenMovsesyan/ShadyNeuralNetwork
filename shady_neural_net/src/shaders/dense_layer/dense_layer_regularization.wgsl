@@ -61,6 +61,7 @@ fn dense_layer_regularization_main(
     let m = dims.x;
     let n = dims.y;
 
+    // WARN: watch this very carefully, the matrix multiplication might be wrong
     if (row < m && col < n) {
         let index = row * n + col;
 
@@ -95,6 +96,7 @@ fn dense_layer_regularization_main(
         }
 
         // Compute the scalar for the dense layer term
-        gradient_buffer[index] = calculate_gradient(index, row);
+        // Using col instead of row because the input buffer is sized to col
+        gradient_buffer[index] = calculate_gradient(index, col);
     }
 }

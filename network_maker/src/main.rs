@@ -1,4 +1,4 @@
-use activation::ActivationFunction;
+use activation::{ActivationFunction, BinarySigmoidFunction};
 #[allow(unused_imports)]
 use log::*;
 
@@ -10,13 +10,13 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
         .add_input_layer(6)?
         .add_dense_layer(
             16,
-            // ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
-            ActivationFunction::Step,
+            ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
+            // ActivationFunction::Step,
         )?
         .add_dense_layer(
             16,
-            // ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
-            ActivationFunction::Step,
+            ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
+            // ActivationFunction::Step,
         )?
         .add_output_layer(3)?;
 
@@ -32,12 +32,12 @@ fn main() {
         neural_net.feed_forward(vec![0.1, 0.2, 0.3, -1.0, -2.0, -3.0])
     );
 
-    println!(
-        "Cost: {}",
-        neural_net
-            .get_cost(vec![0.2, 0.2, 6.0])
-            .expect("Could Not Get Cost")
-    );
+    // println!(
+    //     "Cost: {}",
+    //     neural_net
+    //         .get_cost(vec![0.2, 0.2, 6.0])
+    //         .expect("Could Not Get Cost")
+    // );
 
     neural_net.back_propogate();
 }

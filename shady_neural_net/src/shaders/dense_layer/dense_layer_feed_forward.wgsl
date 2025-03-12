@@ -113,10 +113,10 @@ fn dense_layer_main(
     let m = dims.x;
     let n = dims.y;
 
-    if (row < m) {
+    if (row < n) {
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < n; k++) {
-            let index = row * n + k;
+        for (var k: u32 = 0; k < m; k++) {
+            let index = row * m + k;
             sum += weights_buffer[index] * input_buffer[k];
         }
 

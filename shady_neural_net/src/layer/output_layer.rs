@@ -822,6 +822,13 @@ impl OutputLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
+        let before = read_buffer(
+            &self.input_buffer,
+            self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         // Run the pipeline
         {
             let dispatch_size = compute_workgroup_size(self.num_outputs as u32, WORK_GROUP_SIZE);
@@ -854,6 +861,8 @@ impl OutputLayer {
         );
 
         queue.submit(Some(encoder.finish()));
+
+        print_buffer(&before, device, "Output Buffer Before");
 
         get_buffer(&output, device)
     }

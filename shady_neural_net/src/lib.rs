@@ -265,7 +265,7 @@ impl NeuralNet {
             }
         }
 
-        for layer in self.hidden_layers.iter() {
+        for layer in self.hidden_layers.iter().rev() {
             if let NeuralNetLayer::Dense(dense_layer) = layer {
                 dense_layer.back_propogate(
                     Regularization {
