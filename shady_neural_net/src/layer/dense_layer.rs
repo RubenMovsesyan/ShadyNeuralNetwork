@@ -97,7 +97,11 @@ impl DenseLayer {
         let (input_bind_group_layout, input_bind_group) = create_buffer_bind_group!(
             device,
             "Dense Layer Input Bind Group",
-            (0, &input_connecting_bind_group.buffer, Bbt::Storage, true)
+            (
+                0,
+                &input_connecting_bind_group.buffer,
+                Bbt::Storage { read_only: true }
+            )
         );
 
         // Create all the buffers necessary in this layer
@@ -293,33 +297,49 @@ impl DenseLayer {
         let (feed_forward_bind_group_layout, feed_forward_bind_group) = create_buffer_bind_group!(
             device,
             "Dense Layer Feed Forward Bind Group",
-            (0, &dimensions_buffer, Bbt::Uniform, true),
-            (1, &weights_buffer, Bbt::Storage, true),
-            (2, &bias_buffer, Bbt::Storage, true),
-            (3, &activation_function_buffer, Bbt::Uniform, true),
-            (4, &intermediary_buffer, Bbt::Storage, false),
-            (5, &output_buffer, Bbt::Storage, false)
+            (0, &dimensions_buffer, Bbt::Uniform),
+            (1, &weights_buffer, Bbt::Storage { read_only: true }),
+            (2, &bias_buffer, Bbt::Storage { read_only: true }),
+            (3, &activation_function_buffer, Bbt::Uniform),
+            (4, &intermediary_buffer, Bbt::Storage { read_only: false }),
+            (5, &output_buffer, Bbt::Storage { read_only: false })
         );
 
         let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
             device,
             "Dense Layer Back Propogation Bind Group",
-            (0, &l_1_norm_buffer, Bbt::Uniform, true),
-            (1, &frobenius_norm_buffer, Bbt::Uniform, true),
-            (2, &regularization_info_buffer, Bbt::Uniform, true),
-            (3, &regularization_output_buffer, Bbt::Storage, false),
-            (4, &dimensions_buffer, Bbt::Uniform, true),
-            (5, &weights_buffer, Bbt::Storage, true),
-            (6, &gradient_buffer, Bbt::Storage, false),
-            (7, &gradient_coefficient_buffer, Bbt::Storage, true)
+            (0, &l_1_norm_buffer, Bbt::Uniform),
+            (1, &frobenius_norm_buffer, Bbt::Uniform),
+            (2, &regularization_info_buffer, Bbt::Uniform),
+            (
+                3,
+                &regularization_output_buffer,
+                Bbt::Storage { read_only: false }
+            ),
+            (4, &dimensions_buffer, Bbt::Uniform),
+            (5, &weights_buffer, Bbt::Storage { read_only: true }),
+            (6, &gradient_buffer, Bbt::Storage { read_only: false }),
+            (
+                7,
+                &gradient_coefficient_buffer,
+                Bbt::Storage { read_only: true }
+            )
         );
 
         let (coefficient_forming_bind_group_layout, coefficient_forming_bind_group) = create_buffer_bind_group!(
             device,
             "Dense Layer Coefficient Forming Bind Group",
-            (0, &gradient_coefficient_buffer, Bbt::Storage, false),
-            (1, &activation_function_buffer, Bbt::Uniform, true),
-            (2, &input_connecting_bind_group.buffer, Bbt::Storage, true)
+            (
+                0,
+                &gradient_coefficient_buffer,
+                Bbt::Storage { read_only: false }
+            ),
+            (1, &activation_function_buffer, Bbt::Uniform),
+            (
+                2,
+                &input_connecting_bind_group.buffer,
+                Bbt::Storage { read_only: true }
+            )
         );
 
         // Create the pipeline from the bind group layout
@@ -412,20 +432,17 @@ impl DenseLayer {
             (
                 0,
                 &back_propogation_connection.gradient_coefficient_buffer,
-                Bbt::Storage,
-                true
+                Bbt::Storage { read_only: true }
             ),
             (
                 1,
                 &back_propogation_connection.weights_buffer,
-                Bbt::Storage,
-                true
+                Bbt::Storage { read_only: true }
             ),
             (
                 2,
                 &back_propogation_connection.dimensions_buffer,
-                Bbt::Uniform,
-                true
+                Bbt::Uniform
             )
         );
 

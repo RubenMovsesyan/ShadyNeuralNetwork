@@ -1,11 +1,11 @@
 pub enum Bbt {
     Uniform,
-    Storage,
+    Storage { read_only: bool },
 }
 
 #[macro_export]
 macro_rules! create_buffer_bind_group {
-    ( $device:expr, $label:expr, $( ($binding:expr, $buffer:expr, $type:expr, $read_only:expr) ),* ) => {
+    ( $device:expr, $label:expr, $( ($binding:expr, $buffer:expr, $type:expr) ),* ) => {
         {
             use crate::layer::bind_group_macro::Bbt;
             let mut layout_entries = Vec::new();
@@ -13,7 +13,7 @@ macro_rules! create_buffer_bind_group {
             $(
                 let buffer_binding_type = match $type {
                     Bbt::Uniform => BufferBindingType::Uniform,
-                    Bbt::Storage => BufferBindingType::Storage { read_only: $read_only }
+                    Bbt::Storage{read_only} => BufferBindingType::Storage { read_only: read_only }
                 };
 
                 layout_entries.push(BindGroupLayoutEntry {
