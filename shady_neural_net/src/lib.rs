@@ -11,8 +11,8 @@ use layer::{
     OutputLayer,
 };
 use wgpu::{
-    Backends, Buffer, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
-    PowerPreference, Queue, RequestAdapterOptions,
+    Backends, Buffer, BufferDescriptor, BufferUsages, Device, DeviceDescriptor, Features, Instance,
+    InstanceDescriptor, Limits, PowerPreference, Queue, RequestAdapterOptions,
 };
 
 pub use layer_structs::*;
@@ -88,7 +88,7 @@ pub struct NeuralNet {
     hidden_layers: Vec<NeuralNetLayer>,
     output_layer: Option<NeuralNetLayer>,
 
-    learning_rate: Option<Rc<Buffer>>,
+    learning_rate: Buffer,
 }
 
 impl NeuralNet {
@@ -119,13 +119,20 @@ impl NeuralNet {
             )
             .block_on()?;
 
+        let learning_rate = device.create_buffer(&BufferDescriptor {
+            label: Some("Learning Rate Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
         Ok(Self {
             device,
             queue,
             input_layer: None,
             hidden_layers: Vec::new(),
             output_layer: None,
-            learning_rate: None,
+            learning_rate,
         })
     }
 
@@ -160,12 +167,14 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let new_layer = DenseLayer::new(
+        let mut new_layer = DenseLayer::new(
             &connecting_buffer,
             num_nodes,
             activation_function,
             &self.device,
         );
+
+        new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
@@ -191,7 +200,9 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
+        let mut new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
+
+        new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
@@ -205,6 +216,14 @@ impl NeuralNet {
         self.output_layer = Some(NeuralNetLayer::Output(new_output_layer));
 
         Ok(self)
+    }
+
+    pub fn set_learning_rate(&self, learning_rate: f32) {
+        self.queue.write_buffer(
+            &self.learning_rate,
+            0,
+            bytemuck::cast_slice(&[learning_rate]),
+        );
     }
 
     pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<Vec<f32>, Box<dyn Error>> {
@@ -281,7 +300,17 @@ impl NeuralNet {
         }
     }
 
-    // pub fn gradient_decent(&self) {
+    pub fn gradient_decent(&self) {
+        for layer in self.hidden_layers.iter() {
+            if let NeuralNetLayer::Dense(dense_layer) = layer {
+                dense_layer.gradient_descent(&self.device, &self.queue);
+            }
+        }
 
-    // }
+        if let Some(layer) = self.output_layer.as_ref() {
+            if let NeuralNetLayer::Output(output_layer) = layer {
+                output_layer.gradient_descent(&self.device, &self.queue);
+            }
+        }
+    }
 }

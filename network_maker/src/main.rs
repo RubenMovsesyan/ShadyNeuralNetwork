@@ -40,4 +40,8 @@ fn main() {
     // );
 
     neural_net.back_propogate();
+
+    neural_net.set_learning_rate(0.1);
+
+    neural_net.gradient_decent();
 }

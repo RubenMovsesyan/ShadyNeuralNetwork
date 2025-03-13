@@ -59,10 +59,15 @@ pub struct OutputLayer {
     back_propogation_bind_group_layout: BindGroupLayout,
     back_propogation_bind_group: BindGroup,
 
+    // Gradient Descent Bind groups
+    gradient_descent_bind_group_layout: Option<BindGroupLayout>,
+    gradient_descent_bind_group: Option<BindGroup>,
+
     // GPU Pipeline Information
     feed_forward_pipeline: ComputePipeline,
     loss_function_pipeline: ComputePipeline,
     regularization_pipeline: ComputePipeline,
+    gradient_descent_pipeline: Option<ComputePipeline>,
 }
 
 impl OutputLayer {
@@ -392,9 +397,13 @@ impl OutputLayer {
             back_propogation_bind_group_layout,
             back_propogation_bind_group,
             // -------------------------------
+            gradient_descent_bind_group_layout: None,
+            gradient_descent_bind_group: None,
+            // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
             regularization_pipeline,
+            gradient_descent_pipeline: None,
         }
     }
 
@@ -621,6 +630,103 @@ impl OutputLayer {
         queue.submit(Some(encoder.finish()));
 
         print_buffer(&gradient, device, "Output Layer Gradient Buffer");
+    }
+
+    /// Links the learning rate buffer to the layer and generates the bind group
+    /// information for the gradient descent pass
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device to create the buffers
+    /// * `learning_rate_buffer` - buffer containing the learning rate uniform
+    pub fn link_gradient_descent_pipeline(
+        &mut self,
+        device: &Device,
+        learning_rate_buffer: &Buffer,
+    ) {
+        let (gradient_descent_bind_group_layout, gradient_descent_bind_group) = create_buffer_bind_group!(
+            device,
+            "Output Layer Gradient Descent Bind Group",
+            (0, learning_rate_buffer, Bbt::Uniform),
+            (1, &self.gradient_buffer, Bbt::Storage { read_only: true }),
+            (2, &self.weights_buffer, Bbt::Storage { read_only: false }),
+            (3, &self.dimensions_buffer, Bbt::Uniform)
+        );
+
+        let gradient_descent_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/output_layer/output_layer_gradient_descent.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Output Layer Gradient Descent Compute Pipeline Layout"),
+                bind_group_layouts: &[&gradient_descent_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Output Layer Gradient Descent Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("output_layer_gradient_descent_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
+        self.gradient_descent_bind_group_layout = Some(gradient_descent_bind_group_layout);
+        self.gradient_descent_bind_group = Some(gradient_descent_bind_group);
+        self.gradient_descent_pipeline = Some(gradient_descent_pipeline);
+    }
+
+    /// Performs the gradient descent pass after the buffers have been linked
+    /// and back propogation has been performed
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device for creating the command encoder
+    /// * `queue` - reference to the wgpu queue to send command to the gpu
+    pub fn gradient_descent(&self, device: &Device, queue: &Queue) {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Gradient Descent Command Encoder"),
+        });
+
+        // Run the gradient descent pass
+        {
+            let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
+                (self.num_inputs as u32, self.num_outputs as u32),
+                (D2_WORK_GROUP_SIZE, D2_WORK_GROUP_SIZE),
+            );
+
+            // Begin the compute pass
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("Output Layer Gradient Descent Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            // Set the pipeline
+            compute_pass.set_pipeline(self.gradient_descent_pipeline.as_ref().unwrap());
+
+            // Set the bind groups
+            compute_pass.set_bind_group(0, self.gradient_descent_bind_group.as_ref().unwrap(), &[]);
+
+            // Dispatch the work groups
+            compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+        }
+
+        encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
+        device.poll(Maintain::Wait);
+
+        let weights = read_buffer(
+            &self.weights_buffer,
+            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        print_buffer(&weights, device, "Output Layer New Weights Buffer");
     }
 
     /// Generates the frobenius norm of the weight matrix

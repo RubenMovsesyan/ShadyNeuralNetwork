@@ -58,10 +58,15 @@ pub struct DenseLayer {
     back_propogation_bind_group_layout: BindGroupLayout,
     back_propogation_bind_group: BindGroup,
 
+    // Gradient descent bind groups
+    gradient_descent_bind_group_layout: Option<BindGroupLayout>,
+    gradient_descent_bind_group: Option<BindGroup>,
+
     // GPU pipeline information
     feed_forward_pipeline: ComputePipeline,
     coefficient_forming_pipeline: Option<ComputePipeline>,
     regularization_pipeline: Option<ComputePipeline>,
+    gradient_descent_pipeline: Option<ComputePipeline>,
 
     // Buffer information that needs to be linked after creation
     next_layer_gradient_coefficient_buffer: Option<Rc<Buffer>>,
@@ -392,9 +397,13 @@ impl DenseLayer {
             back_propogation_bind_group_layout,
             back_propogation_bind_group,
             // ------------------------------------
+            gradient_descent_bind_group_layout: None,
+            gradient_descent_bind_group: None,
+            // ------------------------------------
             feed_forward_pipeline,
             coefficient_forming_pipeline: None,
             regularization_pipeline: None,
+            gradient_descent_pipeline: None,
             // ------------------------------------
             next_layer_gradient_coefficient_buffer: None,
             next_layer_weights_buffer: None,
@@ -740,7 +749,8 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
+        encoder
+            .insert_debug_marker("Sync Point: Dense Layer Gradient Coefficient Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
@@ -774,7 +784,7 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
         }
 
-        encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
+        encoder.insert_debug_marker("Sync Point: Dense Layer Back Propogation Pipeline Finished");
         device.poll(Maintain::Wait);
 
         let gradient = read_buffer(
@@ -794,6 +804,111 @@ impl DenseLayer {
         );
 
         print_buffer(&gradient, device, &output_string);
+    }
+
+    /// Links the learning rate buffer to the layer and generates the bind group
+    /// information for the gradient descent pass
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device to create the buffers
+    /// * `learning_rate_buffer` - buffer containing the learning rate uniform
+    pub fn link_gradient_descent_pipeline(
+        &mut self,
+        device: &Device,
+        learning_rate_buffer: &Buffer,
+    ) {
+        let (gradient_descent_bind_group_layout, gradient_descent_bind_group) = create_buffer_bind_group!(
+            device,
+            "Dense Layer Gradient Descent Bind Group",
+            (0, learning_rate_buffer, Bbt::Uniform),
+            (1, &self.gradient_buffer, Bbt::Storage { read_only: true }),
+            (2, &self.weights_buffer, Bbt::Storage { read_only: false }),
+            (3, &self.dimensions_buffer, Bbt::Uniform)
+        );
+
+        let gradient_descent_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/dense_layer/dense_layer_gradient_descent.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Dense Layer Gradient Descent Compute Pipeline Layout"),
+                bind_group_layouts: &[&gradient_descent_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Dense Layer Gradient Descent Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("dense_layer_gradient_descent_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
+        self.gradient_descent_bind_group_layout = Some(gradient_descent_bind_group_layout);
+        self.gradient_descent_bind_group = Some(gradient_descent_bind_group);
+        self.gradient_descent_pipeline = Some(gradient_descent_pipeline);
+    }
+
+    /// Performs the gradient descent pass after the buffers have been linked
+    /// and back propogation has been performed
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - reference to the wgpu device for creating the command encoder
+    /// * `queue` - reference to the wgpu queue to send command to the gpu
+    pub fn gradient_descent(&self, device: &Device, queue: &Queue) {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Dense Layer Gradient Descent Command Encoder"),
+        });
+
+        let before = read_buffer(
+            &self.weights_buffer,
+            self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        // Run the gradient descent pass
+        {
+            let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
+                (self.num_inputs as u32, self.num_nodes as u32),
+                (D2_WORK_GROUP_SIZE, D2_WORK_GROUP_SIZE),
+            );
+
+            // Begin the compute pass
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("Dense Layer Gradient Descent Compute Pass"),
+                timestamp_writes: None,
+            });
+
+            // Set the pipeline
+            compute_pass.set_pipeline(self.gradient_descent_pipeline.as_ref().unwrap());
+
+            // Set the bind groups
+            compute_pass.set_bind_group(0, self.gradient_descent_bind_group.as_ref().unwrap(), &[]);
+
+            // Dispatch the work groups
+            compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+        }
+
+        encoder.insert_debug_marker("Sync Point: Dense Layer Gradient Descent Pipeline Finished");
+        device.poll(Maintain::Wait);
+
+        let weights = read_buffer(
+            &self.weights_buffer,
+            self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        print_buffer(&before, device, "Dense Layer Old Weights Buffer");
+        print_buffer(&weights, device, "Dense Layer New Weights Buffer");
     }
 }
 
