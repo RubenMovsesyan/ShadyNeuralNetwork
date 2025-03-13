@@ -1,7 +1,7 @@
 use layer_structs::activation::ActivationFunction;
 use pollster::*;
 use regularization::{Regularization, RegularizationFunction};
-use std::{error::Error, fmt::Display};
+use std::{error::Error, fmt::Display, rc::Rc};
 
 #[allow(unused_imports)]
 use log::*;
@@ -11,7 +11,7 @@ use layer::{
     OutputLayer,
 };
 use wgpu::{
-    Backends, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
+    Backends, Buffer, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
     PowerPreference, Queue, RequestAdapterOptions,
 };
 
@@ -87,6 +87,8 @@ pub struct NeuralNet {
     input_layer: Option<NeuralNetLayer>,
     hidden_layers: Vec<NeuralNetLayer>,
     output_layer: Option<NeuralNetLayer>,
+
+    learning_rate: Option<Rc<Buffer>>,
 }
 
 impl NeuralNet {
@@ -123,6 +125,7 @@ impl NeuralNet {
             input_layer: None,
             hidden_layers: Vec::new(),
             output_layer: None,
+            learning_rate: None,
         })
     }
 
@@ -151,7 +154,6 @@ impl NeuralNet {
             return Err(Box::new(NoInputLayerAddedError));
         }
 
-        // WARN Unwrapping because at this point the buffers should already exist
         let previous_layer = match self.hidden_layers.last_mut() {
             Some(hidden_layer) => hidden_layer,
             None => self.input_layer.as_mut().unwrap(),
@@ -183,7 +185,6 @@ impl NeuralNet {
         &mut self,
         num_outputs: u64,
     ) -> Result<&mut Self, NoHiddenLayersAddedError> {
-        // WARN Unwrapping because at this point the buffers should already exist
         let previous_layer = match self.hidden_layers.last_mut() {
             Some(hidden_layer) => hidden_layer,
             None => self.input_layer.as_mut().unwrap(),
@@ -279,4 +280,8 @@ impl NeuralNet {
             }
         }
     }
+
+    // pub fn gradient_decent(&self) {
+
+    // }
 }

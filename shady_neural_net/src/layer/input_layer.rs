@@ -164,17 +164,3 @@ impl FeedForwardLayer for InputLayer {
         self.buffer.clone()
     }
 }
-
-// impl Layer for InputLayer {
-//     fn get_connecting_bind_group(&self) -> Rc<BindGroup> {
-//         self.bind_group.clone()
-//     }
-
-//     fn get_connecting_bind_group_layout(&self) -> Rc<BindGroupLayout> {
-//         self.bind_group_layout.clone()
-//     }
-
-//     fn get_connecting_buffer(&self) -> Rc<Buffer> {
-//         self.buffer.clone()
-//     }
-// }

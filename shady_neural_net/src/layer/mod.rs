@@ -12,6 +12,7 @@ pub use dense_layer::DenseLayer;
 pub use input_layer::InputLayer;
 pub use output_layer::OutputLayer;
 
+mod bind_group_macro;
 mod dense_layer;
 mod input_layer;
 mod output_layer;
