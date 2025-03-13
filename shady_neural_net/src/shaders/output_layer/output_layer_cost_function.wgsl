@@ -11,7 +11,7 @@ var<storage, read> expected_values_buffer: array<f32>;
 var<storage, read_write> loss_function_buffer: array<f32>;
 
 @group(0) @binding(4)
-var<storage, read_write> loss_function_gradient_buffer: array<f32>;
+var<storage, read_write> gradient_coefficient_buffer: array<f32>;
 
 fn binary_cross_entropy_loss_gradient(predicted: f32, expected: f32) -> f32 {
     let top = predicted - expected;
@@ -42,6 +42,6 @@ fn output_layer_cost_main(
         let expected = expected_values_buffer[row];
 
         loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
-        loss_function_gradient_buffer[row] = binary_cross_entropy_loss_gradient(predicted, expected);
+        gradient_coefficient_buffer[row] = binary_cross_entropy_loss_gradient(predicted, expected);
     }
 }

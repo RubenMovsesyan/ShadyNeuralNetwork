@@ -29,7 +29,7 @@ fn main() {
     let neural_net = create_neural_net().expect("Could not create neural net");
     println!(
         "Outputs: {:#?}",
-        neural_net.feed_forward(vec![0.1, 0.2, 0.3, -1.0, -2.0, -3.0])
+        neural_net.feed_forward(vec![-0.1, -0.2, -0.3, 1.0, 2.0, 3.0])
     );
 
     // println!(
@@ -39,6 +39,7 @@ fn main() {
     //         .expect("Could Not Get Cost")
     // );
 
+    _ = neural_net.get_cost(vec![0.6, 0.2, 0.2]);
     neural_net.back_propogate();
 
     neural_net.set_learning_rate(0.1);

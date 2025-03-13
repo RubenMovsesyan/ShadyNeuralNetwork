@@ -420,12 +420,12 @@ impl OutputLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
-        let before = read_buffer(
-            &self.input_buffer,
-            self.num_inputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let before = read_buffer(
+        //     &self.input_buffer,
+        //     self.num_inputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         // Run the pipeline
         {
@@ -460,7 +460,7 @@ impl OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&before, device, "Output Buffer Before");
+        // print_buffer(&before, device, "Output Buffer Before");
 
         get_buffer(&output, device)
     }
@@ -488,6 +488,13 @@ impl OutputLayer {
             0,
             bytemuck::cast_slice(&expected_values),
         );
+
+        // let before = read_buffer(
+        //     &self.loss_function_buffer,
+        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         // Run the pipeline
         {
@@ -520,6 +527,9 @@ impl OutputLayer {
         );
 
         queue.submit(Some(encoder.finish()));
+
+        // print_buffer(&before, device, "Loss Function Before");
+        // print_buffer(&loss, device, "Loss Function After");
 
         // Get the average of all the loss values
         let loss_vector = get_buffer(&loss, device);
@@ -620,6 +630,13 @@ impl OutputLayer {
         encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
         device.poll(Maintain::Wait);
 
+        let reg = read_buffer(
+            &self.regularization_output_buffer,
+            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         let gradient = read_buffer(
             &self.gradient_buffer,
             self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
@@ -629,6 +646,7 @@ impl OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
+        print_buffer(&reg, device, "Output Layer Regularization Buffer");
         print_buffer(&gradient, device, "Output Layer Gradient Buffer");
     }
 
@@ -691,6 +709,13 @@ impl OutputLayer {
             label: Some("Output Layer Gradient Descent Command Encoder"),
         });
 
+        let before = read_buffer(
+            &self.weights_buffer,
+            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         // Run the gradient descent pass
         {
             let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
@@ -726,6 +751,7 @@ impl OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
+        print_buffer(&before, device, "Output Layer Old Weights Buffer");
         print_buffer(&weights, device, "Output Layer New Weights Buffer");
     }
 
