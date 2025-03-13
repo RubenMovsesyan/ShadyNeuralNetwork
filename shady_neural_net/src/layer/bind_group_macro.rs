@@ -3,6 +3,17 @@ pub enum Bbt {
     Storage { read_only: bool },
 }
 
+/// Macro for creating bind groups
+///
+/// # Arguments
+///
+/// * `device` - reference to wgpu device for creating bind groups
+/// * `label` - name of the bind group
+/// * `(binding, buffer, type)...` - tuples containing the binding number, the buffer to be binded, and the type of binding (i.e. Storage or Uniform)
+///
+/// # Returns
+///
+/// `(BindGroupLayout, BindGroup)` tuple containing the resulting bind group information
 #[macro_export]
 macro_rules! create_buffer_bind_group {
     ( $device:expr, $label:expr, $( ($binding:expr, $buffer:expr, $type:expr) ),* ) => {
