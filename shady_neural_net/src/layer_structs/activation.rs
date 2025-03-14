@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ActivationFunction {
     Step,
     Threshold(ThresholdFunction),

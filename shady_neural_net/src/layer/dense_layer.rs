@@ -22,6 +22,16 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 
+#[derive(Debug)]
+pub struct DenseLayerDescriptor {
+    pub num_nodes: u64,
+    pub num_inputs: u64,
+    pub activation_function: ActivationFunction,
+
+    pub weights: Vec<f32>,
+    pub biases: Vec<Bias>,
+}
+
 /// Dense layer struct used in neural net
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -99,16 +109,6 @@ impl DenseLayer {
         activation_function: ActivationFunction,
         device: &Device,
     ) -> Self {
-        let (input_bind_group_layout, input_bind_group) = create_buffer_bind_group!(
-            device,
-            "Dense Layer Input Bind Group",
-            (
-                0,
-                &input_connecting_bind_group.buffer,
-                Bbt::Storage { read_only: true }
-            )
-        );
-
         // Create all the buffers necessary in this layer
         let (
             dimensions_buffer,
@@ -299,75 +299,34 @@ impl DenseLayer {
             )
         };
 
-        let (feed_forward_bind_group_layout, feed_forward_bind_group) = create_buffer_bind_group!(
+        let (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (back_propogation_bind_group_layout, back_propogation_bind_group),
+            (coefficient_forming_bind_group_layout, coefficient_forming_bind_group),
+        ) = Self::create_bind_groups(
             device,
-            "Dense Layer Feed Forward Bind Group",
-            (0, &dimensions_buffer, Bbt::Uniform),
-            (1, &weights_buffer, Bbt::Storage { read_only: true }),
-            (2, &bias_buffer, Bbt::Storage { read_only: true }),
-            (3, &activation_function_buffer, Bbt::Uniform),
-            (4, &intermediary_buffer, Bbt::Storage { read_only: false }),
-            (5, &output_buffer, Bbt::Storage { read_only: false })
-        );
-
-        let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
-            device,
-            "Dense Layer Back Propogation Bind Group",
-            (0, &l_1_norm_buffer, Bbt::Uniform),
-            (1, &frobenius_norm_buffer, Bbt::Uniform),
-            (2, &regularization_info_buffer, Bbt::Uniform),
-            (
-                3,
-                &regularization_output_buffer,
-                Bbt::Storage { read_only: false }
-            ),
-            (4, &dimensions_buffer, Bbt::Uniform),
-            (5, &weights_buffer, Bbt::Storage { read_only: true }),
-            (6, &gradient_buffer, Bbt::Storage { read_only: false }),
-            (
-                7,
-                &gradient_coefficient_buffer,
-                Bbt::Storage { read_only: true }
-            )
-        );
-
-        let (coefficient_forming_bind_group_layout, coefficient_forming_bind_group) = create_buffer_bind_group!(
-            device,
-            "Dense Layer Coefficient Forming Bind Group",
-            (
-                0,
-                &gradient_coefficient_buffer,
-                Bbt::Storage { read_only: false }
-            ),
-            (1, &activation_function_buffer, Bbt::Uniform),
-            (
-                2,
-                &input_connecting_bind_group.buffer,
-                Bbt::Storage { read_only: true }
-            )
+            &input_connecting_bind_group.buffer,
+            &dimensions_buffer,
+            &weights_buffer,
+            &bias_buffer,
+            &activation_function_buffer,
+            &intermediary_buffer,
+            &output_buffer,
+            &l_1_norm_buffer,
+            &frobenius_norm_buffer,
+            &regularization_info_buffer,
+            &regularization_output_buffer,
+            &gradient_buffer,
+            &gradient_coefficient_buffer,
         );
 
         // Create the pipeline from the bind group layout
-        let feed_forward_pipeline = {
-            let shader: ShaderModule = device.create_shader_module(include_wgsl!(
-                "../shaders/dense_layer/dense_layer_feed_forward.wgsl"
-            ));
-
-            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("Dense Layer Compute Pipeline Layout"),
-                bind_group_layouts: &[&input_bind_group_layout, &feed_forward_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-            device.create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some("Dense Layer Compute Pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("dense_layer_main"),
-                compilation_options: PipelineCompilationOptions::default(),
-                cache: None,
-            })
-        };
+        let feed_forward_pipeline = Self::create_feed_forward_pipeline(
+            &input_bind_group_layout,
+            &feed_forward_bind_group_layout,
+            device,
+        );
 
         Self {
             num_nodes,
@@ -412,6 +371,424 @@ impl DenseLayer {
             next_layer_bind_group: None,
             coefficient_forming_bind_group_layout,
             coefficient_forming_bind_group,
+        }
+    }
+
+    fn create_bind_groups(
+        device: &Device,
+        input_buffer: &Buffer,
+        dimensions_buffer: &Buffer,
+        weights_buffer: &Buffer,
+        bias_buffer: &Buffer,
+        activation_function_buffer: &Buffer,
+        intermediary_buffer: &Buffer,
+        output_buffer: &Buffer,
+        l_1_norm_buffer: &Buffer,
+        frobenius_norm_buffer: &Buffer,
+        regularization_info_buffer: &Buffer,
+        regularization_output_buffer: &Buffer,
+        gradient_buffer: &Buffer,
+        gradient_coefficient_buffer: &Buffer,
+    ) -> (
+        (BindGroupLayout, BindGroup),
+        (BindGroupLayout, BindGroup),
+        (BindGroupLayout, BindGroup),
+        (BindGroupLayout, BindGroup),
+    ) {
+        let (input_bind_group_layout, input_bind_group) = create_buffer_bind_group!(
+            device,
+            "Dense Layer Input Bind Group",
+            (0, input_buffer, Bbt::Storage { read_only: true })
+        );
+
+        let (feed_forward_bind_group_layout, feed_forward_bind_group) = create_buffer_bind_group!(
+            device,
+            "Dense Layer Feed Forward Bind Group",
+            (0, dimensions_buffer, Bbt::Uniform),
+            (1, weights_buffer, Bbt::Storage { read_only: true }),
+            (2, bias_buffer, Bbt::Storage { read_only: true }),
+            (3, activation_function_buffer, Bbt::Uniform),
+            (4, intermediary_buffer, Bbt::Storage { read_only: false }),
+            (5, output_buffer, Bbt::Storage { read_only: false })
+        );
+
+        let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
+            device,
+            "Dense Layer Back Propogation Bind Group",
+            (0, l_1_norm_buffer, Bbt::Uniform),
+            (1, frobenius_norm_buffer, Bbt::Uniform),
+            (2, regularization_info_buffer, Bbt::Uniform),
+            (
+                3,
+                regularization_output_buffer,
+                Bbt::Storage { read_only: false }
+            ),
+            (4, dimensions_buffer, Bbt::Uniform),
+            (5, weights_buffer, Bbt::Storage { read_only: true }),
+            (6, gradient_buffer, Bbt::Storage { read_only: false }),
+            (
+                7,
+                gradient_coefficient_buffer,
+                Bbt::Storage { read_only: true }
+            )
+        );
+
+        let (coefficient_forming_bind_group_layout, coefficient_forming_bind_group) = create_buffer_bind_group!(
+            device,
+            "Dense Layer Coefficient Forming Bind Group",
+            (
+                0,
+                &gradient_coefficient_buffer,
+                Bbt::Storage { read_only: false }
+            ),
+            (1, &activation_function_buffer, Bbt::Uniform),
+            (2, &input_buffer, Bbt::Storage { read_only: true })
+        );
+
+        (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (
+                back_propogation_bind_group_layout,
+                back_propogation_bind_group,
+            ),
+            (
+                coefficient_forming_bind_group_layout,
+                coefficient_forming_bind_group,
+            ),
+        )
+    }
+
+    fn create_feed_forward_pipeline(
+        input_bind_group_layout: &BindGroupLayout,
+        feed_forward_bind_group_layout: &BindGroupLayout,
+        device: &Device,
+    ) -> ComputePipeline {
+        let shader: ShaderModule = device.create_shader_module(include_wgsl!(
+            "../shaders/dense_layer/dense_layer_feed_forward.wgsl"
+        ));
+
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Dense Layer Compute Pipeline Layout"),
+            bind_group_layouts: &[input_bind_group_layout, feed_forward_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Dense Layer Compute Pipeline"),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some("dense_layer_main"),
+            compilation_options: PipelineCompilationOptions::default(),
+            cache: None,
+        })
+    }
+
+    /// Creates a dense layer based on a descriptor
+    /// Used for deserializing a model
+    ///
+    /// # Arguments
+    ///
+    /// * `dense_layer_descriptor` - descriptor struct containing the dense layers information such as inputs, outputs, weights, and basies
+    /// * `input_connecting_bind_group` - `&FeedForwardConnection` detailing the outputs of the previous layer
+    /// * `device` - wgpu device for creating the layer buffers
+    ///
+    /// # Returns
+    ///
+    /// `DenseLayer` instance with the set weights and biases
+    pub fn from_descriptor(
+        dense_layer_descriptor: DenseLayerDescriptor,
+        input_connecting_bind_group: &FeedForwardConnection,
+        device: &Device,
+    ) -> Self {
+        // Create all the buffers necessary in this layer
+        let (
+            dimensions_buffer,
+            weights_buffer,
+            bias_buffer,
+            activation_function_buffer,
+            intermediary_buffer,
+            output_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
+        ) = {
+            let dimensions_buffer = {
+                let mut dimensions = Vec::new();
+                dimensions.push(dense_layer_descriptor.num_inputs as u32);
+                dimensions.push(dense_layer_descriptor.num_nodes as u32);
+
+                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Dense Layer Dimensions Buffer"),
+                    contents: bytemuck::cast_slice(&dimensions),
+                    usage: BufferUsages::UNIFORM,
+                }))
+            };
+
+            // Initialize the weights matrix buffer with random values from -1.0 to 1.0
+            // containts a matrix with num_nodes sets of weights
+            // each with num_inputs weights in them
+            let weights_buffer = Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Dense Layer Weights Buffer"),
+                contents: bytemuck::cast_slice(&dense_layer_descriptor.weights),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            }));
+
+            // Initialize the bias vector buffer with random values from -1.0 to 1.0
+            // each Bias is a bias value and a bias weight
+            let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Dense Layer Bias Buffer"),
+                contents: bytemuck::cast_slice(&dense_layer_descriptor.biases),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            });
+
+            let activation_function_buffer = {
+                use ActivationFunction::*;
+
+                #[repr(C)]
+                #[derive(Debug, Pod, Zeroable, Copy, Clone)]
+                struct ActivationFunctionRepresentation {
+                    function_type: u32,
+                    function_parameter: f32,
+                }
+
+                // Create a struct of data to send to the GPU that contains
+                // The information needed for the activation function
+                let data = match dense_layer_descriptor.activation_function {
+                    Step => ActivationFunctionRepresentation {
+                        function_type: 0,
+                        function_parameter: 0.0,
+                    },
+                    Threshold(threshold_function) => ActivationFunctionRepresentation {
+                        function_type: 1,
+                        function_parameter: threshold_function.threshold_value,
+                    },
+                    BinarySigmoid(binary_sigmoid_function) => ActivationFunctionRepresentation {
+                        function_type: 2,
+                        function_parameter: binary_sigmoid_function.k,
+                    },
+                    BipolarSigmoid(bipolar_sigmoid_function) => ActivationFunctionRepresentation {
+                        function_type: 3,
+                        function_parameter: bipolar_sigmoid_function.k,
+                    },
+                    ReLU => ActivationFunctionRepresentation {
+                        function_type: 4,
+                        function_parameter: 0.0,
+                    },
+                    LeakyReLU(leaky_relu_function) => ActivationFunctionRepresentation {
+                        function_type: 5,
+                        function_parameter: leaky_relu_function.a,
+                    },
+                    HyperbolicTangent => ActivationFunctionRepresentation {
+                        function_type: 6,
+                        function_parameter: 0.0,
+                    },
+                };
+
+                device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Dense Layer Activation Function Uniform Buffer"),
+                    contents: bytemuck::cast_slice(&[data]),
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                })
+            };
+
+            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Intermediary Buffer"),
+                mapped_at_creation: false,
+                size: dense_layer_descriptor.num_nodes * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
+            let output_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Output Buffer"),
+                mapped_at_creation: false,
+                size: dense_layer_descriptor.num_nodes * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+            }));
+
+            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer L1 Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
+            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Frobenius Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
+            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Regularization Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Regularization Output Buffer"),
+                mapped_at_creation: false,
+                size: dense_layer_descriptor.num_inputs
+                    * dense_layer_descriptor.num_nodes
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let gradient_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Gradient Buffer"),
+                mapped_at_creation: false,
+                size: dense_layer_descriptor.num_inputs
+                    * dense_layer_descriptor.num_nodes
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+                label: Some("Dense Layer Gradient Coefficient Buffer"),
+                mapped_at_creation: false,
+                size: dense_layer_descriptor.num_nodes * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            }));
+
+            (
+                dimensions_buffer,
+                weights_buffer,
+                bias_buffer,
+                activation_function_buffer,
+                intermediary_buffer,
+                output_buffer,
+                l_1_norm_buffer,
+                frobenius_norm_buffer,
+                regularization_info_buffer,
+                regularization_output_buffer,
+                gradient_buffer,
+                gradient_coefficient_buffer,
+            )
+        };
+
+        let (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (back_propogation_bind_group_layout, back_propogation_bind_group),
+            (coefficient_forming_bind_group_layout, coefficient_forming_bind_group),
+        ) = Self::create_bind_groups(
+            device,
+            &input_connecting_bind_group.buffer,
+            &dimensions_buffer,
+            &weights_buffer,
+            &bias_buffer,
+            &activation_function_buffer,
+            &intermediary_buffer,
+            &output_buffer,
+            &l_1_norm_buffer,
+            &frobenius_norm_buffer,
+            &regularization_info_buffer,
+            &regularization_output_buffer,
+            &gradient_buffer,
+            &gradient_coefficient_buffer,
+        );
+
+        // Create the pipeline from the bind group layout
+        let feed_forward_pipeline = Self::create_feed_forward_pipeline(
+            &input_bind_group_layout,
+            &feed_forward_bind_group_layout,
+            device,
+        );
+
+        Self {
+            num_nodes: dense_layer_descriptor.num_nodes,
+            num_inputs: dense_layer_descriptor.num_inputs,
+            activation_function: dense_layer_descriptor.activation_function,
+            // ------------------------------------
+            dimensions_buffer,
+            weights_buffer,
+            bias_buffer,
+            intermediary_buffer,
+            output_buffer,
+            // ------------------------------------
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
+            // ------------------------------------
+            input_buffer: input_connecting_bind_group.buffer.clone(),
+            input_bind_group_layout,
+            input_bind_group,
+            // ------------------------------------
+            feed_forward_bind_group_layout,
+            feed_forward_bind_group,
+            // ------------------------------------
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            // ------------------------------------
+            gradient_descent_bind_group_layout: None,
+            gradient_descent_bind_group: None,
+            // ------------------------------------
+            feed_forward_pipeline,
+            coefficient_forming_pipeline: None,
+            regularization_pipeline: None,
+            gradient_descent_pipeline: None,
+            // ------------------------------------
+            next_layer_gradient_coefficient_buffer: None,
+            next_layer_weights_buffer: None,
+            next_layer_dimensions_buffer: None,
+            next_layer_bind_group_layout: None,
+            next_layer_bind_group: None,
+            coefficient_forming_bind_group_layout,
+            coefficient_forming_bind_group,
+        }
+    }
+
+    /// Creates a descriptor of the dense layer to be used for serializing the
+    /// weights and bias information
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - wgpu device to get the necessary buffers from gpu memory
+    /// * `queue` - wgpu queue to sumbit commands to the gpu
+    ///
+    /// # Returns
+    ///
+    /// a `DenseLayerDescriptor` detailing the number of inputs, number of nodes, weights, and biases
+    pub fn to_descriptor(&self, device: &Device, queue: &Queue) -> DenseLayerDescriptor {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Dense Layer Description Generator Encoder"),
+        });
+
+        let weights_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_nodes * self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        let biases_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_nodes * std::mem::size_of::<Bias>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        let (weights, biases) = (
+            get_buffer(&weights_buffer, device),
+            bytemuck::cast_slice::<f32, Bias>(&get_buffer(&biases_buffer, device)).to_vec(),
+        );
+
+        DenseLayerDescriptor {
+            num_nodes: self.num_nodes,
+            num_inputs: self.num_inputs,
+            activation_function: self.activation_function.clone(),
+            weights,
+            biases,
         }
     }
 
@@ -526,13 +903,6 @@ impl DenseLayer {
             label: Some("Input Layer Command Encoder"),
         });
 
-        // let before = read_buffer(
-        //     &self.input_buffer,
-        //     self.num_inputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         // Run the pipeline
         {
             let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
@@ -554,28 +924,10 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        // let after_int = read_buffer(
-        //     &self.intermediary_buffer,
-        //     self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let after_out = read_buffer(
-        //     &self.output_buffer,
-        //     self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        encoder.insert_debug_marker("Sync Point: Input Pipeline Finished");
+        encoder.insert_debug_marker("Sync Point: Dense Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
-
-        // print_buffer(&before, device, "Dense Layer Before");
-        // print_buffer(&after_int, device, "Dense Layer Inter");
-        // print_buffer(&after_out, device, "Dense Layer Output");
     }
 
     /// Generates the frobenius norm of the weight matrix
@@ -849,13 +1201,6 @@ impl DenseLayer {
             label: Some("Dense Layer Gradient Descent Command Encoder"),
         });
 
-        // let before = read_buffer(
-        //     &self.weights_buffer,
-        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         // Run the gradient descent pass
         {
             let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
@@ -882,17 +1227,7 @@ impl DenseLayer {
         encoder.insert_debug_marker("Sync Point: Dense Layer Gradient Descent Pipeline Finished");
         device.poll(Maintain::Wait);
 
-        // let weights = read_buffer(
-        //     &self.weights_buffer,
-        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         queue.submit(Some(encoder.finish()));
-
-        // print_buffer(&before, device, "Dense Layer Old Weights Buffer");
-        // print_buffer(&weights, device, "Dense Layer New Weights Buffer");
     }
 }
 

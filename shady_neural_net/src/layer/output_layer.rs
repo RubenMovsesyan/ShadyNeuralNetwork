@@ -17,6 +17,14 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 
+#[derive(Debug)]
+pub struct OutputLayerDescriptor {
+    pub num_inputs: u64,
+    pub num_outputs: u64,
+    pub weights: Vec<f32>,
+    pub biases: Vec<Bias>,
+}
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct OutputLayer {
@@ -87,16 +95,6 @@ impl OutputLayer {
         num_outputs: u64,
         device: &Device,
     ) -> Self {
-        let (input_bind_group_layout, input_bind_group) = create_buffer_bind_group!(
-            device,
-            "Output Layer Input Bind Group",
-            (
-                0,
-                &feed_forward_input.buffer,
-                Bbt::Storage { read_only: true }
-            )
-        );
-
         // Create all the buffers necessary in this layer
         let (
             dimensions_buffer,
@@ -247,122 +245,39 @@ impl OutputLayer {
             )
         };
 
-        let (feed_forward_bind_group_layout, feed_forward_bind_group) = create_buffer_bind_group!(
+        let (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (loss_function_bind_group_layout, loss_function_bind_group),
+            (back_propogation_bind_group_layout, back_propogation_bind_group),
+        ) = Self::create_bind_groups(
             device,
-            "Output Layer Feed Forward Bind Group",
-            (0, &dimensions_buffer, Bbt::Uniform),
-            (1, &weights_buffer, Bbt::Storage { read_only: true }),
-            (2, &bias_buffer, Bbt::Storage { read_only: true }),
-            (3, &intermediary_buffer, Bbt::Storage { read_only: false }),
-            (4, &output_buffer, Bbt::Storage { read_only: false })
+            &feed_forward_input.buffer,
+            &dimensions_buffer,
+            &weights_buffer,
+            &bias_buffer,
+            &intermediary_buffer,
+            &output_buffer,
+            &l_1_norm_buffer,
+            &frobenius_norm_buffer,
+            &regularization_info_buffer,
+            &regularization_output_buffer,
+            &gradient_buffer,
+            &gradient_coefficient_buffer,
+            &loss_function_buffer,
+            &expected_values_buffer,
         );
 
-        let (loss_function_bind_group_layout, loss_function_bind_group) = create_buffer_bind_group!(
-            device,
-            "Output Layer Loss Function Bind Group",
-            (0, &dimensions_buffer, Bbt::Uniform),
-            (1, &output_buffer, Bbt::Storage { read_only: true }),
-            (2, &expected_values_buffer, Bbt::Storage { read_only: true }),
-            (3, &loss_function_buffer, Bbt::Storage { read_only: false }),
-            (
-                4,
-                &gradient_coefficient_buffer,
-                Bbt::Storage { read_only: false }
-            )
-        );
-
-        let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
-            device,
-            "Output Lyaer Back Propogation Bind Group",
-            (0, &l_1_norm_buffer, Bbt::Uniform),
-            (1, &frobenius_norm_buffer, Bbt::Uniform),
-            (2, &regularization_info_buffer, Bbt::Uniform),
-            (
-                3,
-                &regularization_output_buffer,
-                Bbt::Storage { read_only: false }
-            ),
-            (4, &dimensions_buffer, Bbt::Uniform),
-            (5, &weights_buffer, Bbt::Storage { read_only: true }),
-            (6, &gradient_buffer, Bbt::Storage { read_only: false }),
-            (
-                7,
-                &gradient_coefficient_buffer,
-                Bbt::Storage { read_only: true }
-            )
-        );
-
-        // This is the main pipeline that is used when feeding information forward
-        // through the neural network. This pipeline will not effect any of the
-        // weights or biases that are created in this layer
-        let feed_forward_pipeline = {
-            let shader = device.create_shader_module(include_wgsl!(
-                "../shaders/output_layer/output_layer_feed_forward.wgsl"
-            ));
-
-            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("Output Layer Feed Forward Compute Pipeline Layout"),
-                bind_group_layouts: &[&input_bind_group_layout, &feed_forward_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-            device.create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some("Output Layer Feed Forward Compute Pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("output_layer_main"),
-                compilation_options: PipelineCompilationOptions::default(),
-                cache: None,
-            })
-        };
-
-        // This is the cost function computing pipeline. This will not effect
-        // any of the weights or biases in this layer. It is used for computing
-        // the cost function associated from the data that is given
-        let loss_function_pipeline = {
-            let shader = device.create_shader_module(include_wgsl!(
-                "../shaders/output_layer/output_layer_cost_function.wgsl"
-            ));
-
-            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("Output Layer Cost Function Compute Pipeline Layout"),
-                bind_group_layouts: &[&loss_function_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-
-            device.create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some("Output Layer Cost Function Compute Pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("output_layer_cost_main"),
-                compilation_options: PipelineCompilationOptions::default(),
-                cache: None,
-            })
-        };
-
-        let regularization_pipeline = {
-            let shader = device.create_shader_module(include_wgsl!(
-                "../shaders/output_layer/output_layer_regularization.wgsl"
-            ));
-
-            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-                label: Some("Output Layer Regularization Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &back_propogation_bind_group_layout,
+        let (feed_forward_pipeline, loss_function_pipeline, regularization_pipeline) =
+            Self::create_pipelines(
+                (
                     &input_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-            device.create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some("Output Layer Regularization Compute Pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader,
-                entry_point: Some("output_layer_regularization_main"),
-                compilation_options: PipelineCompilationOptions::default(),
-                cache: None,
-            })
-        };
+                    &feed_forward_bind_group_layout,
+                    &loss_function_bind_group_layout,
+                    &back_propogation_bind_group_layout,
+                ),
+                device,
+            );
 
         Self {
             num_inputs: feed_forward_input.num_inputs,
@@ -404,6 +319,449 @@ impl OutputLayer {
             loss_function_pipeline,
             regularization_pipeline,
             gradient_descent_pipeline: None,
+        }
+    }
+
+    fn create_bind_groups(
+        device: &Device,
+        input_buffer: &Buffer,
+        dimensions_buffer: &Buffer,
+        weights_buffer: &Buffer,
+        bias_buffer: &Buffer,
+        intermediary_buffer: &Buffer,
+        output_buffer: &Buffer,
+        l_1_norm_buffer: &Buffer,
+        frobenius_norm_buffer: &Buffer,
+        regularization_info_buffer: &Buffer,
+        regularization_output_buffer: &Buffer,
+        gradient_buffer: &Buffer,
+        gradient_coefficient_buffer: &Buffer,
+        loss_function_buffer: &Buffer,
+        expected_values_buffer: &Buffer,
+    ) -> (
+        (BindGroupLayout, BindGroup),
+        (BindGroupLayout, BindGroup),
+        (BindGroupLayout, BindGroup),
+        (BindGroupLayout, BindGroup),
+    ) {
+        let (input_bind_group_layout, input_bind_group) = create_buffer_bind_group!(
+            device,
+            "Output Layer Input Bind Group",
+            (0, input_buffer, Bbt::Storage { read_only: true })
+        );
+
+        let (feed_forward_bind_group_layout, feed_forward_bind_group) = create_buffer_bind_group!(
+            device,
+            "Output Layer Feed Forward Bind Group",
+            (0, dimensions_buffer, Bbt::Uniform),
+            (1, weights_buffer, Bbt::Storage { read_only: true }),
+            (2, bias_buffer, Bbt::Storage { read_only: true }),
+            (3, intermediary_buffer, Bbt::Storage { read_only: false }),
+            (4, output_buffer, Bbt::Storage { read_only: false })
+        );
+
+        let (loss_function_bind_group_layout, loss_function_bind_group) = create_buffer_bind_group!(
+            device,
+            "Output Layer Loss Function Bind Group",
+            (0, dimensions_buffer, Bbt::Uniform),
+            (1, output_buffer, Bbt::Storage { read_only: true }),
+            (2, expected_values_buffer, Bbt::Storage { read_only: true }),
+            (3, loss_function_buffer, Bbt::Storage { read_only: false }),
+            (
+                4,
+                gradient_coefficient_buffer,
+                Bbt::Storage { read_only: false }
+            )
+        );
+
+        let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
+            device,
+            "Output Lyaer Back Propogation Bind Group",
+            (0, l_1_norm_buffer, Bbt::Uniform),
+            (1, frobenius_norm_buffer, Bbt::Uniform),
+            (2, regularization_info_buffer, Bbt::Uniform),
+            (
+                3,
+                regularization_output_buffer,
+                Bbt::Storage { read_only: false }
+            ),
+            (4, dimensions_buffer, Bbt::Uniform),
+            (5, weights_buffer, Bbt::Storage { read_only: true }),
+            (6, gradient_buffer, Bbt::Storage { read_only: false }),
+            (
+                7,
+                gradient_coefficient_buffer,
+                Bbt::Storage { read_only: true }
+            )
+        );
+
+        (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (loss_function_bind_group_layout, loss_function_bind_group),
+            (
+                back_propogation_bind_group_layout,
+                back_propogation_bind_group,
+            ),
+        )
+    }
+
+    fn create_pipelines(
+        (
+            input_bind_group_layout,
+            feed_forward_bind_group_layout,
+            loss_function_bind_group_layout,
+            back_propogation_bind_group_layout,
+        ): (
+            &BindGroupLayout,
+            &BindGroupLayout,
+            &BindGroupLayout,
+            &BindGroupLayout,
+        ),
+        device: &Device,
+    ) -> (ComputePipeline, ComputePipeline, ComputePipeline) {
+        // This is the main pipeline that is used when feeding information forward
+        // through the neural network. This pipeline will not effect any of the
+        // weights or biases that are created in this layer
+        let feed_forward_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/output_layer/output_layer_feed_forward.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Output Layer Feed Forward Compute Pipeline Layout"),
+                bind_group_layouts: &[input_bind_group_layout, feed_forward_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Output Layer Feed Forward Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("output_layer_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
+        // This is the cost function computing pipeline. This will not effect
+        // any of the weights or biases in this layer. It is used for computing
+        // the cost function associated from the data that is given
+        let loss_function_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/output_layer/output_layer_cost_function.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Output Layer Cost Function Compute Pipeline Layout"),
+                bind_group_layouts: &[loss_function_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Output Layer Cost Function Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("output_layer_cost_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
+        let regularization_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!(
+                "../shaders/output_layer/output_layer_regularization.wgsl"
+            ));
+
+            let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Output Layer Regularization Compute Pipeline Layout"),
+                bind_group_layouts: &[back_propogation_bind_group_layout, input_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Output Layer Regularization Compute Pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader,
+                entry_point: Some("output_layer_regularization_main"),
+                compilation_options: PipelineCompilationOptions::default(),
+                cache: None,
+            })
+        };
+
+        (
+            feed_forward_pipeline,
+            loss_function_pipeline,
+            regularization_pipeline,
+        )
+    }
+
+    /// Creates a output layer based on a descriptor
+    /// Used for deserializing a model
+    ///
+    /// # Arguments
+    ///
+    /// * `output_layer_descriptor` - descriptor struct containing the output layers information such as inputs, outputs, weights, and basies
+    /// * `feed_forward_input` - `&FeedForwardConnection` detailing the outputs of the previous layer
+    /// * `device` - wgpu device for creating the layer buffers
+    ///
+    /// # Returns
+    ///
+    /// `OutputLayer` instance with the set weights and biases
+    pub fn from_descriptor(
+        output_layer_descriptor: OutputLayerDescriptor,
+        feed_forward_input: &FeedForwardConnection,
+        device: &Device,
+    ) -> Self {
+        // Create all the buffers necessary in this layer
+        let (
+            dimensions_buffer,
+            weights_buffer,
+            bias_buffer,
+            intermediary_buffer,
+            output_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
+            loss_function_buffer,
+            expected_values_buffer,
+        ) = {
+            let dimensions_buffer = {
+                let mut dimensions = Vec::new();
+                dimensions.push(output_layer_descriptor.num_inputs as u32);
+                dimensions.push(output_layer_descriptor.num_outputs as u32);
+
+                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                    label: Some("Output Layer Dimensions Buffer"),
+                    contents: bytemuck::cast_slice(&dimensions),
+                    usage: BufferUsages::UNIFORM,
+                }))
+            };
+
+            let weights_buffer = Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Output Layer Weights Buffer"),
+                contents: bytemuck::cast_slice(&output_layer_descriptor.weights),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            }));
+
+            let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Output Layer Bias Buffer"),
+                contents: bytemuck::cast_slice(&output_layer_descriptor.biases),
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Intermediary Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
+            let output_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            });
+
+            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer L1 Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Frobenius Norm Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Regularization Info Buffer"),
+                mapped_at_creation: false,
+                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Regularization Output Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs
+                    * output_layer_descriptor.num_inputs
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let gradient_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Ouput Layer Gradient Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs
+                    * output_layer_descriptor.num_inputs
+                    * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Gradient Coefficient Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            }));
+
+            let loss_function_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Loss Function Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+            });
+
+            let expected_values_buffer = device.create_buffer(&BufferDescriptor {
+                label: Some("Output Layer Expected Values Buffer"),
+                mapped_at_creation: false,
+                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+            });
+
+            (
+                dimensions_buffer,
+                weights_buffer,
+                bias_buffer,
+                intermediary_buffer,
+                output_buffer,
+                l_1_norm_buffer,
+                frobenius_norm_buffer,
+                regularization_info_buffer,
+                regularization_output_buffer,
+                gradient_buffer,
+                gradient_coefficient_buffer,
+                loss_function_buffer,
+                expected_values_buffer,
+            )
+        };
+
+        let (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (loss_function_bind_group_layout, loss_function_bind_group),
+            (back_propogation_bind_group_layout, back_propogation_bind_group),
+        ) = Self::create_bind_groups(
+            device,
+            &feed_forward_input.buffer,
+            &dimensions_buffer,
+            &weights_buffer,
+            &bias_buffer,
+            &intermediary_buffer,
+            &output_buffer,
+            &l_1_norm_buffer,
+            &frobenius_norm_buffer,
+            &regularization_info_buffer,
+            &regularization_output_buffer,
+            &gradient_buffer,
+            &gradient_coefficient_buffer,
+            &loss_function_buffer,
+            &expected_values_buffer,
+        );
+
+        let (feed_forward_pipeline, loss_function_pipeline, regularization_pipeline) =
+            Self::create_pipelines(
+                (
+                    &input_bind_group_layout,
+                    &feed_forward_bind_group_layout,
+                    &loss_function_bind_group_layout,
+                    &back_propogation_bind_group_layout,
+                ),
+                device,
+            );
+        Self {
+            num_inputs: output_layer_descriptor.num_inputs,
+            num_outputs: output_layer_descriptor.num_outputs,
+            // -------------------------------
+            dimensions_buffer,
+            weights_buffer,
+            bias_buffer,
+            intermediary_buffer,
+            output_buffer,
+            // -------------------------------
+            loss_function_buffer,
+            expected_values_buffer,
+            // -------------------------------
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
+            // -------------------------------
+            input_buffer: feed_forward_input.buffer.clone(),
+            input_bind_group_layout,
+            input_bind_group,
+            // -------------------------------
+            feed_forward_bind_group_layout,
+            feed_forward_bind_group,
+            // -------------------------------
+            loss_function_bind_group_layout,
+            loss_function_bind_group,
+            // -------------------------------
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            // -------------------------------
+            gradient_descent_bind_group_layout: None,
+            gradient_descent_bind_group: None,
+            // -------------------------------
+            feed_forward_pipeline,
+            loss_function_pipeline,
+            regularization_pipeline,
+            gradient_descent_pipeline: None,
+        }
+    }
+
+    /// Creates a descriptor of the output layer to be used for serializing the
+    /// weights and bias information
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - wgpu device to get the necessary buffers from gpu memory
+    /// * `queue` - wgpu queue to sumbit commands to the gpu
+    ///
+    /// # Returns
+    ///
+    /// a `OutputLayerDescriptor` detailing the number of inputs, number of outputs, weights, and biases
+    pub fn to_descriptor(&self, device: &Device, queue: &Queue) -> OutputLayerDescriptor {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Description Generator Encoder"),
+        });
+
+        let weights_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_outputs * self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        let biases_buffer = read_buffer(
+            &self.weights_buffer,
+            self.num_outputs * std::mem::size_of::<Bias>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        let (weights, biases) = (
+            get_buffer(&weights_buffer, device),
+            bytemuck::cast_slice::<f32, Bias>(&get_buffer(&biases_buffer, device)).to_vec(),
+        );
+
+        OutputLayerDescriptor {
+            num_outputs: self.num_outputs,
+            num_inputs: self.num_inputs,
+            weights,
+            biases,
         }
     }
 
