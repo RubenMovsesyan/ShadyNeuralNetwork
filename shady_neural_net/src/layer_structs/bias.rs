@@ -1,7 +1,8 @@
 use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
 
 #[repr(C)]
-#[derive(Pod, Zeroable, Copy, Clone, Debug)]
+#[derive(Pod, Zeroable, Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Bias {
     bias: f32,
     weight: f32,

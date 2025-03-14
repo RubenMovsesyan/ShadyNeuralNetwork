@@ -1,14 +1,20 @@
 use layer_structs::activation::ActivationFunction;
 use pollster::*;
 use regularization::{Regularization, RegularizationFunction};
-use std::{error::Error, fmt::Display};
+use serde::{Deserialize, Serialize};
+use std::{
+    error::Error,
+    fs::File,
+    io::{Read, Write},
+};
 
 #[allow(unused_imports)]
 use log::*;
 
 use layer::{
-    BackPropogationConnection, BackPropogationLayer, DenseLayer, InputLayer, NeuralNetLayer,
-    OutputLayer,
+    BackPropogationConnection, BackPropogationLayer, DenseLayer, DenseLayerDescriptor, InputLayer,
+    InputLayerDescriptor, NeuralNetLayer, NeuralNetLayerDescriptor, OutputLayer,
+    OutputLayerDescriptor, errors::*,
 };
 use wgpu::{
     Backends, Buffer, BufferDescriptor, BufferUsages, Device, DeviceDescriptor, Features, Instance,
@@ -21,60 +27,11 @@ mod layer;
 mod layer_structs;
 mod utils;
 
-// Error Structs
-#[derive(Debug)]
-pub struct InputLayerAlreadyAddedError;
-
-impl Error for InputLayerAlreadyAddedError {}
-
-impl Display for InputLayerAlreadyAddedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Input layer has already been added")
-    }
-}
-
-#[derive(Debug)]
-pub struct NoInputLayerAddedError;
-
-impl Error for NoInputLayerAddedError {}
-
-impl Display for NoInputLayerAddedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "No Input layers have been added yet")
-    }
-}
-
-#[derive(Debug)]
-pub struct NoHiddenLayersAddedError;
-
-impl Error for NoHiddenLayersAddedError {}
-
-impl Display for NoHiddenLayersAddedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "No Dense layers have been added yet")
-    }
-}
-
-#[derive(Debug)]
-pub struct AdapterNotCreatedError;
-
-impl Error for AdapterNotCreatedError {}
-
-impl Display for AdapterNotCreatedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Couldn't Create Adapter")
-    }
-}
-
-#[derive(Debug)]
-pub struct LayerMismatchError;
-
-impl Error for LayerMismatchError {}
-
-impl Display for LayerMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Layers Mismatched")
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NeuralNetDesciriptor {
+    input_layer: NeuralNetLayerDescriptor,
+    hidden_layers: Vec<NeuralNetLayerDescriptor>,
+    output_layer: NeuralNetLayerDescriptor,
 }
 
 // Neural Network API
@@ -152,6 +109,22 @@ impl NeuralNet {
         Ok(self)
     }
 
+    fn load_input_layer(
+        &mut self,
+        input_layer_descriptor: &InputLayerDescriptor,
+    ) -> Result<&mut Self, InputLayerAlreadyAddedError> {
+        if let Some(_) = self.input_layer {
+            return Err(InputLayerAlreadyAddedError);
+        }
+
+        self.input_layer = Some(NeuralNetLayer::Input(InputLayer::from_descriptor(
+            input_layer_descriptor,
+            &self.device,
+        )));
+
+        Ok(self)
+    }
+
     pub fn add_dense_layer(
         &mut self,
         num_nodes: u64,
@@ -190,6 +163,39 @@ impl NeuralNet {
         Ok(self)
     }
 
+    fn load_dense_layer(
+        &mut self,
+        dense_layer_descriptor: &DenseLayerDescriptor,
+    ) -> Result<&mut Self, Box<dyn Error>> {
+        if let None = self.input_layer {
+            return Err(Box::new(NoInputLayerAddedError));
+        }
+
+        let previous_layer = match self.hidden_layers.last_mut() {
+            Some(hidden_layer) => hidden_layer,
+            None => self.input_layer.as_mut().unwrap(),
+        };
+
+        let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
+        let mut new_layer =
+            DenseLayer::from_descriptor(dense_layer_descriptor, &connecting_buffer, &self.device);
+
+        new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+
+        previous_layer.link_next_layer_weights(
+            &self.device,
+            BackPropogationConnection {
+                gradient_coefficient_buffer: new_layer.get_gradient_coefficient_buffer(),
+                weights_buffer: new_layer.get_weights_buffer(),
+                dimensions_buffer: new_layer.get_dimensions_buffer(),
+            },
+        );
+
+        self.hidden_layers.push(NeuralNetLayer::Dense(new_layer));
+
+        Ok(self)
+    }
+
     pub fn add_output_layer(
         &mut self,
         num_outputs: u64,
@@ -201,6 +207,35 @@ impl NeuralNet {
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
         let mut new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
+
+        new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+
+        previous_layer.link_next_layer_weights(
+            &self.device,
+            BackPropogationConnection {
+                gradient_coefficient_buffer: new_output_layer.get_gradient_coefficient_buffer(),
+                weights_buffer: new_output_layer.get_weights_buffer(),
+                dimensions_buffer: new_output_layer.get_dimensions_buffer(),
+            },
+        );
+
+        self.output_layer = Some(NeuralNetLayer::Output(new_output_layer));
+
+        Ok(self)
+    }
+
+    fn load_output_layer(
+        &mut self,
+        output_layer_descriptor: &OutputLayerDescriptor,
+    ) -> Result<&mut Self, NoHiddenLayersAddedError> {
+        let previous_layer = match self.hidden_layers.last_mut() {
+            Some(hidden_layer) => hidden_layer,
+            None => self.input_layer.as_mut().unwrap(),
+        };
+
+        let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
+        let mut new_output_layer =
+            OutputLayer::from_descriptor(output_layer_descriptor, &connecting_buffer, &self.device);
 
         new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
@@ -312,5 +347,76 @@ impl NeuralNet {
                 output_layer.gradient_descent(&self.device, &self.queue);
             }
         }
+    }
+
+    pub fn save_model(&self) -> Result<NeuralNetDesciriptor, Box<dyn Error>> {
+        let input_layer_descriptor: InputLayerDescriptor = self
+            .input_layer
+            .as_ref()
+            .ok_or(NoInputLayerAddedError)?
+            .as_input()?
+            .to_descriptor();
+
+        // TODO: if adding more layer types this needs to be some sort of trait
+        let mut hidden_layer_descriptors: Vec<DenseLayerDescriptor> = Vec::new();
+
+        for layer in self.hidden_layers.iter() {
+            let hidden_layer_descriptor: DenseLayerDescriptor =
+                layer.as_dense()?.to_descriptor(&self.device, &self.queue);
+
+            hidden_layer_descriptors.push(hidden_layer_descriptor);
+        }
+
+        let output_layer_descriptor: OutputLayerDescriptor = self
+            .output_layer
+            .as_ref()
+            .ok_or(NoOutputLayerAddedError)?
+            .as_output()?
+            .to_descriptor(&self.device, &self.queue);
+
+        Ok(NeuralNetDesciriptor {
+            input_layer: NeuralNetLayerDescriptor::Input(input_layer_descriptor),
+            hidden_layers: hidden_layer_descriptors
+                .into_iter()
+                .map(|dense_layer_descriptor| {
+                    NeuralNetLayerDescriptor::Dense(dense_layer_descriptor)
+                })
+                .collect(),
+            output_layer: NeuralNetLayerDescriptor::Output(output_layer_descriptor),
+        })
+    }
+
+    pub fn save_model_to_file(&self, file_name: &str) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create(file_name)?;
+
+        let serialized_data = self.save_model()?;
+
+        write!(file, "{}", serde_json::to_string(&serialized_data)?)?;
+
+        Ok(())
+    }
+
+    pub fn load_model_from_file(file_name: &str) -> Result<Self, Box<dyn Error>> {
+        let mut file = File::open(file_name)?;
+
+        let mut serialized_data = String::new();
+        file.read_to_string(&mut serialized_data)?;
+
+        let network_descriptor: NeuralNetDesciriptor = serde_json::from_str(&serialized_data)?;
+
+        let mut neural_network = Self::new()?;
+
+        let input_descriptor = network_descriptor.input_layer.as_input()?;
+        neural_network.load_input_layer(input_descriptor)?;
+
+        for layer in network_descriptor.hidden_layers.iter() {
+            let dense_descriptor = layer.as_dense()?;
+            neural_network.load_dense_layer(dense_descriptor)?;
+        }
+
+        let output_descriptor = network_descriptor.output_layer.as_output()?;
+        neural_network.load_output_layer(output_descriptor)?;
+
+        Ok(neural_network)
     }
 }
