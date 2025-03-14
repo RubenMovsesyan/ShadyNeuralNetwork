@@ -148,8 +148,6 @@ impl OutputLayer {
                     ));
                 }
 
-                println!("Actual Biases: {:#?}", biases);
-
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Bias Buffer"),
                     contents: bytemuck::cast_slice(&biases),
