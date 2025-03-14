@@ -112,10 +112,6 @@ fn dense_layer_coefficient_forming_main(
             sum += next_layer_weights_buffer[index] * next_layer_gradient_coefficient_buffer[k];
         }
 
-        // TODO: add the last term necessary to get the gradient coefficient buffer
-        // to work
-        // gradient_coefficient_buffer[row] = sum;
-
         switch activation_function.function_type {
             case STEP: {
                 sum *= step_gradient(input_buffer[row]);

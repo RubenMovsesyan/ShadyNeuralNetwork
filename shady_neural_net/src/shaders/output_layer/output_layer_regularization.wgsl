@@ -37,9 +37,9 @@ const RIDGE: u32 = 1;
 const ELASTIC_NET_REGRESSION: u32 = 2;
 
 
-fn calculate_gradient(index: u32, row: u32) -> f32 {
-    let dJdo = gradient_coefficient_buffer[index];
-    let h = input_buffer[row];
+fn calculate_gradient(index: u32, row: u32, col: u32) -> f32 {
+    let dJdo = gradient_coefficient_buffer[row];
+    let h = input_buffer[col];
     let regularization = regularization_output_buffer[index];
 
     return dJdo * h + regularization;
@@ -91,6 +91,9 @@ fn output_layer_regularization_main(
         }
 
         // Compute the scalar for the output term
-        gradient_buffer[index] = calculate_gradient(index, row);
+        // Using col for row because we are working in reverse
+        gradient_buffer[index] = calculate_gradient(index, col, row);
     }
+
+    workgroupBarrier();
 }

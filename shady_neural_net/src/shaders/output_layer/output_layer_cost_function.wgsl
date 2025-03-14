@@ -44,4 +44,6 @@ fn output_layer_cost_main(
         loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
         gradient_coefficient_buffer[row] = binary_cross_entropy_loss_gradient(predicted, expected);
     }
+
+    workgroupBarrier();
 }

@@ -32,21 +32,13 @@ var<storage, read_write> gradient_buffer: array<f32>;
 var<storage, read> gradient_coefficient_buffer: array<f32>;
 
 
-@group(1) @binding(0)
-var<storage, read> next_layer_gradient_coefficient_buffer: array<f32>;
-
-@group(1) @binding(0)
-var<storage, read> next_layer_weights_buffer: array<f32>;
-
-
 const LASSO: u32 = 0;
 const RIDGE: u32 = 1;
 const ELASTIC_NET_REGRESSION: u32 = 2;
 
-fn calculate_gradient(index: u32, row: u32) -> f32 {
-    let dJdo = gradient_coefficient_buffer[index];
+fn calculate_gradient(index: u32, row: u32, col: u32) -> f32 {
+    let dJdo = gradient_coefficient_buffer[col];
     let h = input_buffer[row];
-
     let regularization = regularization_output_buffer[index];
 
     return dJdo * h + regularization;
@@ -96,7 +88,6 @@ fn dense_layer_regularization_main(
         }
 
         // Compute the scalar for the dense layer term
-        // Using col instead of row because the input buffer is sized to col
-        gradient_buffer[index] = calculate_gradient(index, col);
+        gradient_buffer[index] = calculate_gradient(index, row, col);
     }
 }

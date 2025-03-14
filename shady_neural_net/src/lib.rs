@@ -1,7 +1,7 @@
 use layer_structs::activation::ActivationFunction;
 use pollster::*;
 use regularization::{Regularization, RegularizationFunction};
-use std::{error::Error, fmt::Display, rc::Rc};
+use std::{error::Error, fmt::Display};
 
 #[allow(unused_imports)]
 use log::*;

@@ -4,7 +4,7 @@ use crate::{
     create_buffer_bind_group,
     layer::{D2_WORK_GROUP_SIZE, compute_2d_workgroup_size},
     regularization::RegularizationFunction,
-    utils::{get_buffer, print_buffer, read_buffer},
+    utils::{get_buffer, read_buffer},
 };
 
 use super::{
@@ -787,23 +787,7 @@ impl DenseLayer {
         encoder.insert_debug_marker("Sync Point: Dense Layer Back Propogation Pipeline Finished");
         device.poll(Maintain::Wait);
 
-        // let gradient = read_buffer(
-        //     &self.gradient_buffer,
-        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         queue.submit(Some(encoder.finish()));
-
-        let total = self.num_inputs * self.num_nodes;
-
-        let output_string = format!(
-            "Dense Layer Gradient Buffer: inputs: {} nodes: {} total: {}",
-            self.num_inputs, self.num_nodes, total
-        );
-
-        // print_buffer(&gradient, device, &output_string);
     }
 
     /// Links the learning rate buffer to the layer and generates the bind group
