@@ -13,6 +13,7 @@ use super::{
     regularization::Regularization,
 };
 use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
@@ -22,7 +23,7 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DenseLayerDescriptor {
     pub num_nodes: u64,
     pub num_inputs: u64,

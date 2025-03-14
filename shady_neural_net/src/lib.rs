@@ -1,14 +1,16 @@
 use layer_structs::activation::ActivationFunction;
 use pollster::*;
 use regularization::{Regularization, RegularizationFunction};
-use std::{error::Error, fmt::Display};
+use serde::{Deserialize, Serialize};
+use std::{error::Error, fs::File, io::Write};
 
 #[allow(unused_imports)]
 use log::*;
 
 use layer::{
-    BackPropogationConnection, BackPropogationLayer, DenseLayer, InputLayer, NeuralNetLayer,
-    OutputLayer,
+    BackPropogationConnection, BackPropogationLayer, DenseLayer, DenseLayerDescriptor, InputLayer,
+    InputLayerDescriptor, NeuralNetLayer, NeuralNetLayerDescriptor, OutputLayer,
+    OutputLayerDescriptor, errors::*,
 };
 use wgpu::{
     Backends, Buffer, BufferDescriptor, BufferUsages, Device, DeviceDescriptor, Features, Instance,
@@ -21,60 +23,11 @@ mod layer;
 mod layer_structs;
 mod utils;
 
-// Error Structs
-#[derive(Debug)]
-pub struct InputLayerAlreadyAddedError;
-
-impl Error for InputLayerAlreadyAddedError {}
-
-impl Display for InputLayerAlreadyAddedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Input layer has already been added")
-    }
-}
-
-#[derive(Debug)]
-pub struct NoInputLayerAddedError;
-
-impl Error for NoInputLayerAddedError {}
-
-impl Display for NoInputLayerAddedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "No Input layers have been added yet")
-    }
-}
-
-#[derive(Debug)]
-pub struct NoHiddenLayersAddedError;
-
-impl Error for NoHiddenLayersAddedError {}
-
-impl Display for NoHiddenLayersAddedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "No Dense layers have been added yet")
-    }
-}
-
-#[derive(Debug)]
-pub struct AdapterNotCreatedError;
-
-impl Error for AdapterNotCreatedError {}
-
-impl Display for AdapterNotCreatedError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Couldn't Create Adapter")
-    }
-}
-
-#[derive(Debug)]
-pub struct LayerMismatchError;
-
-impl Error for LayerMismatchError {}
-
-impl Display for LayerMismatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Layers Mismatched")
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NeuralNetDesciriptor {
+    input_layer: NeuralNetLayerDescriptor,
+    hidden_layers: Vec<NeuralNetLayerDescriptor>,
+    output_layer: NeuralNetLayerDescriptor,
 }
 
 // Neural Network API
@@ -312,5 +265,52 @@ impl NeuralNet {
                 output_layer.gradient_descent(&self.device, &self.queue);
             }
         }
+    }
+
+    pub fn save_model(&self) -> Result<NeuralNetDesciriptor, Box<dyn Error>> {
+        let input_layer_descriptor: InputLayerDescriptor = self
+            .input_layer
+            .as_ref()
+            .ok_or(NoInputLayerAddedError)?
+            .as_input()?
+            .to_descriptor();
+
+        // TODO: if adding more layer types this needs to be some sort of trait
+        let mut hidden_layer_descriptors: Vec<DenseLayerDescriptor> = Vec::new();
+
+        for layer in self.hidden_layers.iter() {
+            let hidden_layer_descriptor: DenseLayerDescriptor =
+                layer.as_dense()?.to_descriptor(&self.device, &self.queue);
+
+            hidden_layer_descriptors.push(hidden_layer_descriptor);
+        }
+
+        let output_layer_descriptor: OutputLayerDescriptor = self
+            .output_layer
+            .as_ref()
+            .ok_or(NoOutputLayerAddedError)?
+            .as_output()?
+            .to_descriptor(&self.device, &self.queue);
+
+        Ok(NeuralNetDesciriptor {
+            input_layer: NeuralNetLayerDescriptor::Input(input_layer_descriptor),
+            hidden_layers: hidden_layer_descriptors
+                .into_iter()
+                .map(|dense_layer_descriptor| {
+                    NeuralNetLayerDescriptor::Dense(dense_layer_descriptor)
+                })
+                .collect(),
+            output_layer: NeuralNetLayerDescriptor::Output(output_layer_descriptor),
+        })
+    }
+
+    pub fn save_model_to_file(&self, file_name: &str) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create(file_name)?;
+
+        let serialized_data = self.save_model()?;
+
+        write!(file, "{}", serde_json::to_string(&serialized_data)?)?;
+
+        Ok(())
     }
 }

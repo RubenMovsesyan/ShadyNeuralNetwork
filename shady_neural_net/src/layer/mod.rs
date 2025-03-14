@@ -3,21 +3,26 @@ use std::rc::Rc;
 #[allow(unused_imports)]
 use log::*;
 
+use serde::{Deserialize, Serialize};
 use wgpu::{Buffer, Device};
 
 // Module for inner structures in the Neural Network
-use crate::layer_structs::*;
+use crate::{LayerMismatchError, layer_structs::*};
 
 pub use dense_layer::DenseLayer;
 pub use input_layer::InputLayer;
 pub use output_layer::OutputLayer;
+
+pub use dense_layer::DenseLayerDescriptor;
+pub use input_layer::InputLayerDescriptor;
+pub use output_layer::OutputLayerDescriptor;
 
 mod bind_group_macro;
 mod dense_layer;
 mod input_layer;
 mod output_layer;
 
-mod errors;
+pub mod errors;
 
 const WORK_GROUP_SIZE: u32 = 256;
 const D2_WORK_GROUP_SIZE: u32 = 16;
@@ -62,6 +67,13 @@ pub struct BackPropogationConnection {
     pub dimensions_buffer: Rc<Buffer>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum NeuralNetLayerDescriptor {
+    Input(InputLayerDescriptor),
+    Dense(DenseLayerDescriptor),
+    Output(OutputLayerDescriptor),
+}
+
 #[derive(Debug)]
 pub enum NeuralNetLayer {
     Input(InputLayer),
@@ -96,6 +108,27 @@ impl NeuralNetLayer {
                 dense_layer.link_next_layer(device, &back_propogation_connection);
             }
             _ => {}
+        }
+    }
+
+    pub fn as_input(&self) -> Result<&InputLayer, LayerMismatchError> {
+        match self {
+            NeuralNetLayer::Input(input_layer) => Ok(&input_layer),
+            _ => Err(LayerMismatchError),
+        }
+    }
+
+    pub fn as_dense(&self) -> Result<&DenseLayer, LayerMismatchError> {
+        match self {
+            NeuralNetLayer::Dense(dense_layer) => Ok(&dense_layer),
+            _ => Err(LayerMismatchError),
+        }
+    }
+
+    pub fn as_output(&self) -> Result<&OutputLayer, LayerMismatchError> {
+        match self {
+            NeuralNetLayer::Output(output_layer) => Ok(&output_layer),
+            _ => Err(LayerMismatchError),
         }
     }
 }

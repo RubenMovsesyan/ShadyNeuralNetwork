@@ -8,6 +8,7 @@ use crate::utils::{get_buffer, read_buffer};
 use super::{BackPropogationLayer, D2_WORK_GROUP_SIZE};
 use super::{FeedForwardConnection, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
 use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
@@ -17,7 +18,7 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OutputLayerDescriptor {
     pub num_inputs: u64,
     pub num_outputs: u64,

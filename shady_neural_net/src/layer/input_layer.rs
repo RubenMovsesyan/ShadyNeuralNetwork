@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
@@ -14,7 +15,7 @@ use super::{
     FeedForwardLayer, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InputLayerDescriptor {
     pub num_inputs: u64,
 }

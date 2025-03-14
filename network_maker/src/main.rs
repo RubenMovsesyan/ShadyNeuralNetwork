@@ -27,22 +27,24 @@ fn main() {
     pretty_env_logger::init();
 
     let neural_net = create_neural_net().expect("Could not create neural net");
-    println!(
-        "Outputs: {:#?}",
-        neural_net.feed_forward(vec![-0.1, -0.2, -0.3, 1.0, 2.0, 3.0])
-    );
 
+    _ = neural_net.save_model_to_file("test_files/nn_test.json");
     // println!(
-    //     "Cost: {}",
-    //     neural_net
-    //         .get_cost(vec![0.2, 0.2, 6.0])
-    //         .expect("Could Not Get Cost")
+    //     "Outputs: {:#?}",
+    //     neural_net.feed_forward(vec![-0.1, -0.2, -0.3, 1.0, 2.0, 3.0])
     // );
 
-    _ = neural_net.get_cost(vec![0.6, 0.2, 0.2]);
-    neural_net.back_propogate();
+    // // println!(
+    // //     "Cost: {}",
+    // //     neural_net
+    // //         .get_cost(vec![0.2, 0.2, 6.0])
+    // //         .expect("Could Not Get Cost")
+    // // );
 
-    neural_net.set_learning_rate(0.1);
+    // _ = neural_net.get_cost(vec![0.6, 0.2, 0.2]);
+    // neural_net.back_propogate();
 
-    neural_net.gradient_decent();
+    // neural_net.set_learning_rate(0.1);
+
+    // neural_net.gradient_decent();
 }
