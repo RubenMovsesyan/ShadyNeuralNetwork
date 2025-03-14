@@ -99,7 +99,7 @@ impl InputLayer {
     /// # Returns
     ///
     /// A new instance of `InputLayer`
-    pub fn from_descriptor(input_layer_descriptor: InputLayerDescriptor, device: &Device) -> Self {
+    pub fn from_descriptor(input_layer_descriptor: &InputLayerDescriptor, device: &Device) -> Self {
         let buffer = Rc::new(device.create_buffer(&BufferDescriptor {
             label: Some("Input Layer Buffer"),
             mapped_at_creation: false,

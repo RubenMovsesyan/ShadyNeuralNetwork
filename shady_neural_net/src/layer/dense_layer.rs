@@ -170,7 +170,7 @@ impl DenseLayer {
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Bias Buffer"),
                     contents: bytemuck::cast_slice(&biases),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                 })
             };
 
@@ -498,7 +498,7 @@ impl DenseLayer {
     ///
     /// `DenseLayer` instance with the set weights and biases
     pub fn from_descriptor(
-        dense_layer_descriptor: DenseLayerDescriptor,
+        dense_layer_descriptor: &DenseLayerDescriptor,
         input_connecting_bind_group: &FeedForwardConnection,
         device: &Device,
     ) -> Self {
@@ -543,7 +543,7 @@ impl DenseLayer {
             let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("Dense Layer Bias Buffer"),
                 contents: bytemuck::cast_slice(&dense_layer_descriptor.biases),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
             });
 
             let activation_function_buffer = {
@@ -771,7 +771,7 @@ impl DenseLayer {
         );
 
         let biases_buffer = read_buffer(
-            &self.weights_buffer,
+            &self.bias_buffer,
             self.num_nodes * std::mem::size_of::<Bias>() as u64,
             device,
             &mut encoder,

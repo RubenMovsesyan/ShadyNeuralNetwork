@@ -74,6 +74,31 @@ pub enum NeuralNetLayerDescriptor {
     Output(OutputLayerDescriptor),
 }
 
+impl NeuralNetLayerDescriptor {
+    pub fn as_input(&self) -> Result<&InputLayerDescriptor, LayerMismatchError> {
+        match self {
+            NeuralNetLayerDescriptor::Input(input_layer_descriptor) => Ok(&input_layer_descriptor),
+            _ => Err(LayerMismatchError),
+        }
+    }
+
+    pub fn as_dense(&self) -> Result<&DenseLayerDescriptor, LayerMismatchError> {
+        match self {
+            NeuralNetLayerDescriptor::Dense(dense_layer_descriptor) => Ok(&dense_layer_descriptor),
+            _ => Err(LayerMismatchError),
+        }
+    }
+
+    pub fn as_output(&self) -> Result<&OutputLayerDescriptor, LayerMismatchError> {
+        match self {
+            NeuralNetLayerDescriptor::Output(output_layer_descriptor) => {
+                Ok(&output_layer_descriptor)
+            }
+            _ => Err(LayerMismatchError),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum NeuralNetLayer {
     Input(InputLayer),

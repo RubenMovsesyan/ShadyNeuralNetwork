@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::create_buffer_bind_group;
 use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::regularization::*;
-use crate::utils::{get_buffer, read_buffer};
+use crate::utils::{get_buffer, print_buffer, read_buffer};
 
 use super::{BackPropogationLayer, D2_WORK_GROUP_SIZE};
 use super::{FeedForwardConnection, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
@@ -147,6 +147,8 @@ impl OutputLayer {
                         rand::random_range(-1.0..=1.0),
                     ));
                 }
+
+                println!("Actual Biases: {:#?}", biases);
 
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Bias Buffer"),
@@ -510,7 +512,7 @@ impl OutputLayer {
     ///
     /// `OutputLayer` instance with the set weights and biases
     pub fn from_descriptor(
-        output_layer_descriptor: OutputLayerDescriptor,
+        output_layer_descriptor: &OutputLayerDescriptor,
         feed_forward_input: &FeedForwardConnection,
         device: &Device,
     ) -> Self {
@@ -745,7 +747,7 @@ impl OutputLayer {
         );
 
         let biases_buffer = read_buffer(
-            &self.weights_buffer,
+            &self.bias_buffer,
             self.num_outputs * std::mem::size_of::<Bias>() as u64,
             device,
             &mut encoder,

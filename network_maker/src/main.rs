@@ -28,11 +28,20 @@ fn main() {
 
     let neural_net = create_neural_net().expect("Could not create neural net");
 
+    println!(
+        "Outputs: {:#?}",
+        neural_net.feed_forward(vec![-0.1, -0.2, -0.3, 1.0, 2.0, 3.0])
+    );
     _ = neural_net.save_model_to_file("test_files/nn_test.json");
-    // println!(
-    //     "Outputs: {:#?}",
-    //     neural_net.feed_forward(vec![-0.1, -0.2, -0.3, 1.0, 2.0, 3.0])
-    // );
+    drop(neural_net);
+
+    let neural_net = NeuralNet::load_model_from_file("test_files/nn_test.json")
+        .expect("Could not load model from file");
+
+    println!(
+        "Outputs: {:#?}",
+        neural_net.feed_forward(vec![-0.1, -0.2, -0.3, 1.0, 2.0, 3.0])
+    );
 
     // // println!(
     // //     "Cost: {}",
