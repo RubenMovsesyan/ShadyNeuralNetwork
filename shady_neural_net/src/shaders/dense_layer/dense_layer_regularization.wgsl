@@ -73,7 +73,12 @@ fn dense_layer_regularization_main(
 
             regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight;
         } else if (regularization_info_buffer.function_type == RIDGE) {
-            regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
+            // regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
+            if (frobenius_norm_uniform == 0.0) {
+                regularization_output_buffer[index] = lambda_1;
+            } else {
+                regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
+            }
         } else if (regularization_info_buffer.function_type == ELASTIC_NET_REGRESSION) {
             var grad: f32 = 0.0;
 
@@ -84,7 +89,13 @@ fn dense_layer_regularization_main(
                 grad = -1.0;
             }
 
-            regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
+            // regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
+
+            if (frobenius_norm_uniform == 0.0) {
+                regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2;
+            } else {
+                regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
+            }
         }
 
         // Compute the scalar for the dense layer term

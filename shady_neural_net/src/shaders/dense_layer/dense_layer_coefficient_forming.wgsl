@@ -55,6 +55,9 @@ fn binary_sigmoid_gradient(x: f32, k: f32) -> f32 {
     let top = k * exp(-k * x);
     let bottom = pow(exp(-k * x) + 1, 2.0);
 
+    if (bottom == 0.0) {
+        return 0.0;
+    }
     return top / bottom;
 }
 
@@ -65,6 +68,9 @@ fn bipolar_sigmoid_gradient(x: f32, k: f32) -> f32 {
     let top_part_2 = k * (1.0 - exp(-k * x)) * exp(-k * x);
     let bot_part_2 = pow(exp(-k * x) + 1, 2.0);
 
+    if (bot_part_1 == 0.0 || bot_part_2 == 0.0) {
+        return 0.0;
+    }
     return (top_part_1 / bot_part_1) + (top_part_2 / bot_part_2);
 }
 
@@ -90,6 +96,9 @@ fn hyperbolic_tangent_gradient(x: f32) -> f32 {
     let top = pow(exp(x) - exp(-x), 2.0);
     let bot = exp(x) + exp(-x);
 
+    if (bot == 0.0) {
+        return 0.0;
+    }
     return 1.0 - (top / bot);
 }
 

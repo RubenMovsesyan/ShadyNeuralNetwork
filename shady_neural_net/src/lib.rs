@@ -311,8 +311,8 @@ impl NeuralNet {
                 output_layer.back_propogate(
                     Regularization {
                         function: RegularizationFunction::ElasticNetRegression,
-                        hyper_parameter_1: 0.1,
-                        hyper_parameter_2: 0.1,
+                        hyper_parameter_1: 1.0,
+                        hyper_parameter_2: 1.0,
                     },
                     &self.device,
                     &self.queue,
@@ -325,8 +325,8 @@ impl NeuralNet {
                 dense_layer.back_propogate(
                     Regularization {
                         function: RegularizationFunction::ElasticNetRegression,
-                        hyper_parameter_1: 0.1,
-                        hyper_parameter_2: 0.1,
+                        hyper_parameter_1: 1.0,
+                        hyper_parameter_2: 1.0,
                     },
                     &self.device,
                     &self.queue,

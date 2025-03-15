@@ -71,6 +71,9 @@ fn threshold(x: f32, theta: f32) -> f32 {
 fn binary_sigmoid(x: f32, k: f32) -> f32 {
     let bottom = 1.0 + exp(-k  * x);
 
+    if (bottom == 0.0) {
+        return 0.0;
+    }
     return 1.0 / bottom;
 }
 
@@ -78,6 +81,9 @@ fn bipolar_sigmoid(x: f32, k: f32) -> f32 {
     let top = 1.0 - exp(-k * x);
     let bottom = 1.0 + exp(-k * x);
 
+    if (bottom == 0.0) {
+        return 0.0;
+    }
     return top / bottom;
 }
 
@@ -101,6 +107,9 @@ fn hyperbolic_tangent(x: f32) -> f32 {
     let top = exp(x) - exp(-x);
     let bottom = exp(x) + exp(-x);
 
+    if (bottom == 0.0) {
+        return 0.0;
+    }
     return top / bottom;
 }
 
