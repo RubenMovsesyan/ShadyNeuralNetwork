@@ -5,6 +5,7 @@ use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::regularization::*;
 use crate::utils::{get_buffer, print_buffer, read_buffer};
 
+use super::weight_distribution::WeightDistribution;
 use super::{BackPropogationLayer, D2_WORK_GROUP_SIZE};
 use super::{FeedForwardConnection, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
 use bytemuck::{Pod, Zeroable};
@@ -125,12 +126,14 @@ impl OutputLayer {
             };
 
             let weights_buffer = {
-                let mut weights: Vec<f32> = Vec::new();
-                for _ in 0..feed_forward_input.num_inputs {
-                    for _ in 0..num_outputs {
-                        weights.push(rand::random_range(-1.0..=1.0));
-                    }
-                }
+                // let mut weights: Vec<f32> = Vec::new();
+                // for _ in 0..feed_forward_input.num_inputs {
+                //     for _ in 0..num_outputs {
+                //         weights.push(rand::random_range(-1.0..=1.0));
+                //     }
+                // }
+                let weights = WeightDistribution::Xavier
+                    .get_weight_distribution(feed_forward_input.num_inputs, num_outputs);
 
                 Rc::new(device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Weights Buffer"),
@@ -140,13 +143,14 @@ impl OutputLayer {
             };
 
             let bias_buffer = {
-                let mut biases = Vec::new();
-                for _ in 0..num_outputs {
-                    biases.push(Bias::new(
-                        rand::random_range(-1.0..=1.0),
-                        rand::random_range(-1.0..=1.0),
-                    ));
-                }
+                // let mut biases = Vec::new();
+                // for _ in 0..num_outputs {
+                //     biases.push(Bias::new(
+                //         rand::random_range(-1.0..=1.0),
+                //         rand::random_range(-1.0..=1.0),
+                //     ));
+                // }
+                let biases = WeightDistribution::Xavier.get_bias_distribution(num_outputs);
 
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Output Layer Bias Buffer"),
@@ -967,10 +971,19 @@ impl OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
         }
 
+        // let gradient = read_buffer(
+        //     &self.gradient_coefficient_buffer,
+        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
         encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+
+        // print_buffer(&gradient, device, "Output Layer Gradient Coeff Buffer");
     }
 
     /// Links the learning rate buffer to the layer and generates the bind group

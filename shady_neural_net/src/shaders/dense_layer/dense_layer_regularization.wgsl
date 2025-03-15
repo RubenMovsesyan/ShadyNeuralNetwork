@@ -52,10 +52,10 @@ fn dense_layer_regularization_main(
     let col = global_id.y;
     let m = dims.x;
     let n = dims.y;
+    let index = row * n + col;
 
     // WARN: watch this very carefully, the matrix multiplication might be wrong
     if (row < m && col < n) {
-        let index = row * n + col;
 
         let weight = weights_buffer[index];
         let lambda_1 = regularization_info_buffer.hyper_parameter_1;
@@ -99,6 +99,24 @@ fn dense_layer_regularization_main(
         }
 
         // Compute the scalar for the dense layer term
+    //     gradient_buffer[index] = calculate_gradient(index, row, col);
+    // }
         gradient_buffer[index] = calculate_gradient(index, row, col);
     }
+
+    workgroupBarrier();
+
+    
+    if (row < m && col < n) {
+        var sum = 0.0;
+        for (var i = 0u; i < (m * n); i++) {
+            sum += gradient_buffer[index];
+        }
+
+        sum /= f32(m * n);
+
+        gradient_buffer[index] /= sum;
+    }
+
+    workgroupBarrier();
 }

@@ -10,7 +10,7 @@ use crate::{
 use super::{
     BackPropogationConnection, BackPropogationLayer, FeedForwardConnection, FeedForwardLayer,
     WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias, compute_workgroup_size,
-    regularization::Regularization,
+    regularization::Regularization, weight_distribution::WeightDistribution,
 };
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
@@ -141,13 +141,15 @@ impl DenseLayer {
             // containts a matrix with num_nodes sets of weights
             // each with num_inputs weights in them
             let weights_buffer = {
-                let mut weights: Vec<f32> = Vec::new();
+                // let mut weights: Vec<f32> = Vec::new();
 
-                for _ in 0..input_connecting_bind_group.num_inputs {
-                    for _ in 0..num_nodes {
-                        weights.push(rand::random_range(-1.0..=1.0));
-                    }
-                }
+                // for _ in 0..input_connecting_bind_group.num_inputs {
+                //     for _ in 0..num_nodes {
+                //         weights.push(rand::random_range(-1.0..=1.0));
+                //     }
+                // }
+                let weights = WeightDistribution::Xavier
+                    .get_weight_distribution(input_connecting_bind_group.num_inputs, num_nodes);
 
                 Rc::new(device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Weights Buffer"),
@@ -159,13 +161,14 @@ impl DenseLayer {
             // Initialize the bias vector buffer with random values from -1.0 to 1.0
             // each Bias is a bias value and a bias weight
             let bias_buffer = {
-                let mut biases = Vec::new();
-                for _ in 0..num_nodes {
-                    biases.push(Bias::new(
-                        rand::random_range(-1.0..=1.0),
-                        rand::random_range(-1.0..=1.0),
-                    ));
-                }
+                // let mut biases = Vec::new();
+                // for _ in 0..num_nodes {
+                //     biases.push(Bias::new(
+                //         rand::random_range(-1.0..=1.0),
+                //         rand::random_range(-1.0..=1.0),
+                //     ));
+                // }
+                let biases = WeightDistribution::Xavier.get_bias_distribution(num_nodes);
 
                 device.create_buffer_init(&BufferInitDescriptor {
                     label: Some("Dense Layer Bias Buffer"),
@@ -1137,19 +1140,19 @@ impl DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
         }
 
-        let gradient = read_buffer(
-            &self.gradient_buffer,
-            self.num_nodes * self.num_inputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let gradient = read_buffer(
+        //     &self.gradient_coefficient_buffer,
+        //     self.num_nodes * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         encoder.insert_debug_marker("Sync Point: Dense Layer Back Propogation Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
+        // print_buffer(&gradient, device, "Dense Layer Gradient Coeff Buffer");
     }
 
     /// Links the learning rate buffer to the layer and generates the bind group

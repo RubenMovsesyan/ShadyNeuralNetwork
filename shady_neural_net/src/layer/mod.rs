@@ -21,6 +21,7 @@ mod bind_group_macro;
 mod dense_layer;
 mod input_layer;
 mod output_layer;
+mod weight_distribution;
 
 pub mod errors;
 
