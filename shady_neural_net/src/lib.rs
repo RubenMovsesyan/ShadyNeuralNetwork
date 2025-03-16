@@ -12,8 +12,8 @@ use std::{
 use log::*;
 
 use layer::{
-    BackPropogationConnection, BackPropogationLayer, DenseLayer, DenseLayerDescriptor, InputLayer,
-    InputLayerDescriptor, NeuralNetLayer, NeuralNetLayerDescriptor, OutputLayer,
+    BackPropogationConnection, BackPropogationLayerConnection, DenseLayer, DenseLayerDescriptor,
+    InputLayer, InputLayerDescriptor, NeuralNetLayer, NeuralNetLayerDescriptor, OutputLayer,
     OutputLayerDescriptor, errors::*,
 };
 use wgpu::{

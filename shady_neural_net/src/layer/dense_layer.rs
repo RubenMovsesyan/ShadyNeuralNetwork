@@ -4,13 +4,14 @@ use crate::{
     create_buffer_bind_group,
     layer::{D2_WORK_GROUP_SIZE, compute_2d_workgroup_size},
     regularization::RegularizationFunction,
-    utils::{get_buffer, print_buffer, read_buffer},
+    utils::{get_buffer, read_buffer},
 };
 
 use super::{
-    BackPropogationConnection, BackPropogationLayer, FeedForwardConnection, FeedForwardLayer,
-    WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias, compute_workgroup_size,
-    regularization::Regularization, weight_distribution::WeightDistribution,
+    BackPropogationConnection, BackPropogationLayerConnection, FeedForwardConnection,
+    FeedForwardLayerConnection, WORK_GROUP_SIZE, activation::ActivationFunction, bias::Bias,
+    compute_workgroup_size, regularization::Regularization,
+    weight_distribution::WeightDistribution,
 };
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
@@ -112,195 +113,47 @@ impl DenseLayer {
     ) -> Self {
         // Create all the buffers necessary in this layer
         let (
-            dimensions_buffer,
-            weights_buffer,
-            bias_buffer,
             activation_function_buffer,
             intermediary_buffer,
-            output_buffer,
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
             regularization_output_buffer,
             gradient_buffer,
+            dimensions_buffer,
+            output_buffer,
             gradient_coefficient_buffer,
-        ) = {
-            let dimensions_buffer = {
-                let mut dimensions = Vec::new();
-                dimensions.push(input_connecting_bind_group.num_inputs as u32);
-                dimensions.push(num_nodes as u32);
+        ) = Self::create_buffers(
+            device,
+            input_connecting_bind_group,
+            num_nodes,
+            activation_function,
+        );
 
-                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Dimensions Buffer"),
-                    contents: bytemuck::cast_slice(&dimensions),
-                    usage: BufferUsages::UNIFORM,
-                }))
-            };
+        // Initialize the weights matrix buffer with random values from -1.0 to 1.0
+        // containts a matrix with num_nodes sets of weights
+        // each with num_inputs weights in them
+        let weights_buffer = {
+            let weights = WeightDistribution::Xavier
+                .get_weight_distribution(input_connecting_bind_group.num_inputs, num_nodes);
 
-            // Initialize the weights matrix buffer with random values from -1.0 to 1.0
-            // containts a matrix with num_nodes sets of weights
-            // each with num_inputs weights in them
-            let weights_buffer = {
-                // let mut weights: Vec<f32> = Vec::new();
-
-                // for _ in 0..input_connecting_bind_group.num_inputs {
-                //     for _ in 0..num_nodes {
-                //         weights.push(rand::random_range(-1.0..=1.0));
-                //     }
-                // }
-                let weights = WeightDistribution::Xavier
-                    .get_weight_distribution(input_connecting_bind_group.num_inputs, num_nodes);
-
-                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Weights Buffer"),
-                    contents: bytemuck::cast_slice(&weights),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                }))
-            };
-
-            // Initialize the bias vector buffer with random values from -1.0 to 1.0
-            // each Bias is a bias value and a bias weight
-            let bias_buffer = {
-                // let mut biases = Vec::new();
-                // for _ in 0..num_nodes {
-                //     biases.push(Bias::new(
-                //         rand::random_range(-1.0..=1.0),
-                //         rand::random_range(-1.0..=1.0),
-                //     ));
-                // }
-                let biases = WeightDistribution::Xavier.get_bias_distribution(num_nodes);
-
-                device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Bias Buffer"),
-                    contents: bytemuck::cast_slice(&biases),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                })
-            };
-
-            let activation_function_buffer = {
-                use ActivationFunction::*;
-
-                #[repr(C)]
-                #[derive(Debug, Pod, Zeroable, Copy, Clone)]
-                struct ActivationFunctionRepresentation {
-                    function_type: u32,
-                    function_parameter: f32,
-                }
-
-                // Create a struct of data to send to the GPU that contains
-                // The information needed for the activation function
-                let data = match activation_function {
-                    Step => ActivationFunctionRepresentation {
-                        function_type: 0,
-                        function_parameter: 0.0,
-                    },
-                    Threshold(threshold_function) => ActivationFunctionRepresentation {
-                        function_type: 1,
-                        function_parameter: threshold_function.threshold_value,
-                    },
-                    BinarySigmoid(binary_sigmoid_function) => ActivationFunctionRepresentation {
-                        function_type: 2,
-                        function_parameter: binary_sigmoid_function.k,
-                    },
-                    BipolarSigmoid(bipolar_sigmoid_function) => ActivationFunctionRepresentation {
-                        function_type: 3,
-                        function_parameter: bipolar_sigmoid_function.k,
-                    },
-                    ReLU => ActivationFunctionRepresentation {
-                        function_type: 4,
-                        function_parameter: 0.0,
-                    },
-                    LeakyReLU(leaky_relu_function) => ActivationFunctionRepresentation {
-                        function_type: 5,
-                        function_parameter: leaky_relu_function.a,
-                    },
-                    HyperbolicTangent => ActivationFunctionRepresentation {
-                        function_type: 6,
-                        function_parameter: 0.0,
-                    },
-                };
-
-                device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Activation Function Uniform Buffer"),
-                    contents: bytemuck::cast_slice(&[data]),
-                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                })
-            };
-
-            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Intermediary Buffer"),
-                mapped_at_creation: false,
-                size: num_nodes * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let output_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Output Buffer"),
-                mapped_at_creation: false,
-                size: num_nodes * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            }));
-
-            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer L1 Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Frobenius Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Regularization Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Regularization Output Buffer"),
-                mapped_at_creation: false,
-                size: input_connecting_bind_group.num_inputs
-                    * num_nodes
-                    * std::mem::size_of::<f32>() as u64,
+            Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Dense Layer Weights Buffer"),
+                contents: bytemuck::cast_slice(&weights),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
+            }))
+        };
 
-            let gradient_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Gradient Buffer"),
-                mapped_at_creation: false,
-                size: input_connecting_bind_group.num_inputs
-                    * num_nodes
-                    * std::mem::size_of::<f32>() as u64,
+        // Initialize the bias vector buffer with random values from -1.0 to 1.0
+        // each Bias is a bias value and a bias weight
+        let bias_buffer = {
+            let biases = WeightDistribution::Xavier.get_bias_distribution(num_nodes);
+
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Dense Layer Bias Buffer"),
+                contents: bytemuck::cast_slice(&biases),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Gradient Coefficient Buffer"),
-                mapped_at_creation: false,
-                size: num_nodes * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            }));
-
-            (
-                dimensions_buffer,
-                weights_buffer,
-                bias_buffer,
-                activation_function_buffer,
-                intermediary_buffer,
-                output_buffer,
-                l_1_norm_buffer,
-                frobenius_norm_buffer,
-                regularization_info_buffer,
-                regularization_output_buffer,
-                gradient_buffer,
-                gradient_coefficient_buffer,
-            )
+            })
         };
 
         let (
@@ -488,6 +341,159 @@ impl DenseLayer {
         })
     }
 
+    fn create_buffers(
+        device: &Device,
+        input_connecting_bind_group: &FeedForwardConnection,
+        num_nodes: u64,
+        activation_function: ActivationFunction,
+    ) -> (
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Rc<Buffer>,
+        Rc<Buffer>,
+        Rc<Buffer>,
+    ) {
+        let dimensions_buffer = {
+            let mut dimensions = Vec::new();
+            dimensions.push(input_connecting_bind_group.num_inputs as u32);
+            dimensions.push(num_nodes as u32);
+
+            Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Dense Layer Dimensions Buffer"),
+                contents: bytemuck::cast_slice(&dimensions),
+                usage: BufferUsages::UNIFORM,
+            }))
+        };
+
+        let activation_function_buffer = {
+            use ActivationFunction::*;
+
+            #[repr(C)]
+            #[derive(Debug, Pod, Zeroable, Copy, Clone)]
+            struct ActivationFunctionRepresentation {
+                function_type: u32,
+                function_parameter: f32,
+            }
+
+            // Create a struct of data to send to the GPU that contains
+            // The information needed for the activation function
+            let data = match activation_function {
+                Step => ActivationFunctionRepresentation {
+                    function_type: 0,
+                    function_parameter: 0.0,
+                },
+                Threshold(threshold_function) => ActivationFunctionRepresentation {
+                    function_type: 1,
+                    function_parameter: threshold_function.threshold_value,
+                },
+                BinarySigmoid(binary_sigmoid_function) => ActivationFunctionRepresentation {
+                    function_type: 2,
+                    function_parameter: binary_sigmoid_function.k,
+                },
+                BipolarSigmoid(bipolar_sigmoid_function) => ActivationFunctionRepresentation {
+                    function_type: 3,
+                    function_parameter: bipolar_sigmoid_function.k,
+                },
+                ReLU => ActivationFunctionRepresentation {
+                    function_type: 4,
+                    function_parameter: 0.0,
+                },
+                LeakyReLU(leaky_relu_function) => ActivationFunctionRepresentation {
+                    function_type: 5,
+                    function_parameter: leaky_relu_function.a,
+                },
+                HyperbolicTangent => ActivationFunctionRepresentation {
+                    function_type: 6,
+                    function_parameter: 0.0,
+                },
+            };
+
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Dense Layer Activation Function Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[data]),
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            })
+        };
+
+        let intermediary_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Intermediary Buffer"),
+            mapped_at_creation: false,
+            size: num_nodes * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        });
+
+        let output_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Output Buffer"),
+            mapped_at_creation: false,
+            size: num_nodes * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+        }));
+
+        let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer L1 Norm Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        });
+
+        let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Frobenius Norm Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        });
+
+        let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Regularization Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<(u32, f32, f32)>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Regularization Output Buffer"),
+            mapped_at_creation: false,
+            size: input_connecting_bind_group.num_inputs
+                * num_nodes
+                * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let gradient_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Gradient Buffer"),
+            mapped_at_creation: false,
+            size: input_connecting_bind_group.num_inputs
+                * num_nodes
+                * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+            label: Some("Dense Layer Gradient Coefficient Buffer"),
+            mapped_at_creation: false,
+            size: num_nodes * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        }));
+
+        (
+            activation_function_buffer,
+            intermediary_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            dimensions_buffer,
+            output_buffer,
+            gradient_coefficient_buffer,
+        )
+    }
+
     /// Creates a dense layer based on a descriptor
     /// Used for deserializing a model
     ///
@@ -507,173 +513,39 @@ impl DenseLayer {
     ) -> Self {
         // Create all the buffers necessary in this layer
         let (
-            dimensions_buffer,
-            weights_buffer,
-            bias_buffer,
             activation_function_buffer,
             intermediary_buffer,
-            output_buffer,
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
             regularization_output_buffer,
             gradient_buffer,
+            dimensions_buffer,
+            output_buffer,
             gradient_coefficient_buffer,
-        ) = {
-            let dimensions_buffer = {
-                let mut dimensions = Vec::new();
-                dimensions.push(dense_layer_descriptor.num_inputs as u32);
-                dimensions.push(dense_layer_descriptor.num_nodes as u32);
+        ) = Self::create_buffers(
+            device,
+            input_connecting_bind_group,
+            dense_layer_descriptor.num_nodes,
+            dense_layer_descriptor.activation_function,
+        );
 
-                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Dimensions Buffer"),
-                    contents: bytemuck::cast_slice(&dimensions),
-                    usage: BufferUsages::UNIFORM,
-                }))
-            };
+        // Initialize the weights matrix buffer with random values from -1.0 to 1.0
+        // containts a matrix with num_nodes sets of weights
+        // each with num_inputs weights in them
+        let weights_buffer = Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Dense Layer Weights Buffer"),
+            contents: bytemuck::cast_slice(&dense_layer_descriptor.weights),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        }));
 
-            // Initialize the weights matrix buffer with random values from -1.0 to 1.0
-            // containts a matrix with num_nodes sets of weights
-            // each with num_inputs weights in them
-            let weights_buffer = Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("Dense Layer Weights Buffer"),
-                contents: bytemuck::cast_slice(&dense_layer_descriptor.weights),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            }));
-
-            // Initialize the bias vector buffer with random values from -1.0 to 1.0
-            // each Bias is a bias value and a bias weight
-            let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("Dense Layer Bias Buffer"),
-                contents: bytemuck::cast_slice(&dense_layer_descriptor.biases),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let activation_function_buffer = {
-                use ActivationFunction::*;
-
-                #[repr(C)]
-                #[derive(Debug, Pod, Zeroable, Copy, Clone)]
-                struct ActivationFunctionRepresentation {
-                    function_type: u32,
-                    function_parameter: f32,
-                }
-
-                // Create a struct of data to send to the GPU that contains
-                // The information needed for the activation function
-                let data = match dense_layer_descriptor.activation_function {
-                    Step => ActivationFunctionRepresentation {
-                        function_type: 0,
-                        function_parameter: 0.0,
-                    },
-                    Threshold(threshold_function) => ActivationFunctionRepresentation {
-                        function_type: 1,
-                        function_parameter: threshold_function.threshold_value,
-                    },
-                    BinarySigmoid(binary_sigmoid_function) => ActivationFunctionRepresentation {
-                        function_type: 2,
-                        function_parameter: binary_sigmoid_function.k,
-                    },
-                    BipolarSigmoid(bipolar_sigmoid_function) => ActivationFunctionRepresentation {
-                        function_type: 3,
-                        function_parameter: bipolar_sigmoid_function.k,
-                    },
-                    ReLU => ActivationFunctionRepresentation {
-                        function_type: 4,
-                        function_parameter: 0.0,
-                    },
-                    LeakyReLU(leaky_relu_function) => ActivationFunctionRepresentation {
-                        function_type: 5,
-                        function_parameter: leaky_relu_function.a,
-                    },
-                    HyperbolicTangent => ActivationFunctionRepresentation {
-                        function_type: 6,
-                        function_parameter: 0.0,
-                    },
-                };
-
-                device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Dense Layer Activation Function Uniform Buffer"),
-                    contents: bytemuck::cast_slice(&[data]),
-                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                })
-            };
-
-            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Intermediary Buffer"),
-                mapped_at_creation: false,
-                size: dense_layer_descriptor.num_nodes * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let output_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Output Buffer"),
-                mapped_at_creation: false,
-                size: dense_layer_descriptor.num_nodes * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
-            }));
-
-            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer L1 Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Frobenius Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Regularization Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Regularization Output Buffer"),
-                mapped_at_creation: false,
-                size: dense_layer_descriptor.num_inputs
-                    * dense_layer_descriptor.num_nodes
-                    * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let gradient_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Gradient Buffer"),
-                mapped_at_creation: false,
-                size: dense_layer_descriptor.num_inputs
-                    * dense_layer_descriptor.num_nodes
-                    * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
-                label: Some("Dense Layer Gradient Coefficient Buffer"),
-                mapped_at_creation: false,
-                size: dense_layer_descriptor.num_nodes * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            }));
-
-            (
-                dimensions_buffer,
-                weights_buffer,
-                bias_buffer,
-                activation_function_buffer,
-                intermediary_buffer,
-                output_buffer,
-                l_1_norm_buffer,
-                frobenius_norm_buffer,
-                regularization_info_buffer,
-                regularization_output_buffer,
-                gradient_buffer,
-                gradient_coefficient_buffer,
-            )
-        };
+        // Initialize the bias vector buffer with random values from -1.0 to 1.0
+        // each Bias is a bias value and a bias weight
+        let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Dense Layer Bias Buffer"),
+            contents: bytemuck::cast_slice(&dense_layer_descriptor.biases),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
 
         let (
             (input_bind_group_layout, input_bind_group),
@@ -1244,13 +1116,13 @@ impl DenseLayer {
     }
 }
 
-impl FeedForwardLayer for DenseLayer {
+impl FeedForwardLayerConnection for DenseLayer {
     fn get_output_buffer(&self) -> Rc<Buffer> {
         self.output_buffer.clone()
     }
 }
 
-impl BackPropogationLayer for DenseLayer {
+impl BackPropogationLayerConnection for DenseLayer {
     fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
         self.gradient_coefficient_buffer.clone()
     }

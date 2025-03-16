@@ -3,10 +3,10 @@ use std::rc::Rc;
 use crate::create_buffer_bind_group;
 use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::regularization::*;
-use crate::utils::{get_buffer, print_buffer, read_buffer};
+use crate::utils::{get_buffer, read_buffer};
 
 use super::weight_distribution::WeightDistribution;
-use super::{BackPropogationLayer, D2_WORK_GROUP_SIZE};
+use super::{BackPropogationLayerConnection, D2_WORK_GROUP_SIZE};
 use super::{FeedForwardConnection, WORK_GROUP_SIZE, bias::Bias, compute_workgroup_size};
 use bytemuck::{Pod, Zeroable};
 use serde::{Deserialize, Serialize};
@@ -99,9 +99,6 @@ impl OutputLayer {
     ) -> Self {
         // Create all the buffers necessary in this layer
         let (
-            dimensions_buffer,
-            weights_buffer,
-            bias_buffer,
             intermediary_buffer,
             output_buffer,
             l_1_norm_buffer,
@@ -109,145 +106,31 @@ impl OutputLayer {
             regularization_info_buffer,
             regularization_output_buffer,
             gradient_buffer,
-            gradient_coefficient_buffer,
             loss_function_buffer,
             expected_values_buffer,
-        ) = {
-            let dimensions_buffer = {
-                let mut dimensions = Vec::new();
-                dimensions.push(feed_forward_input.num_inputs as u32);
-                dimensions.push(num_outputs as u32);
+            dimensions_buffer,
+            gradient_coefficient_buffer,
+        ) = Self::create_buffers(device, feed_forward_input, num_outputs);
 
-                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Output Layer Dimensions Buffer"),
-                    contents: bytemuck::cast_slice(&dimensions),
-                    usage: BufferUsages::UNIFORM,
-                }))
-            };
+        let weights_buffer = {
+            let weights = WeightDistribution::Xavier
+                .get_weight_distribution(feed_forward_input.num_inputs, num_outputs);
 
-            let weights_buffer = {
-                // let mut weights: Vec<f32> = Vec::new();
-                // for _ in 0..feed_forward_input.num_inputs {
-                //     for _ in 0..num_outputs {
-                //         weights.push(rand::random_range(-1.0..=1.0));
-                //     }
-                // }
-                let weights = WeightDistribution::Xavier
-                    .get_weight_distribution(feed_forward_input.num_inputs, num_outputs);
-
-                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Output Layer Weights Buffer"),
-                    contents: bytemuck::cast_slice(&weights),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                }))
-            };
-
-            let bias_buffer = {
-                // let mut biases = Vec::new();
-                // for _ in 0..num_outputs {
-                //     biases.push(Bias::new(
-                //         rand::random_range(-1.0..=1.0),
-                //         rand::random_range(-1.0..=1.0),
-                //     ));
-                // }
-                let biases = WeightDistribution::Xavier.get_bias_distribution(num_outputs);
-
-                device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Output Layer Bias Buffer"),
-                    contents: bytemuck::cast_slice(&biases),
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-                })
-            };
-
-            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Intermediary Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let output_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer L1 Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Frobenius Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Regularization Info Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Regularization Output Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs
-                    * feed_forward_input.num_inputs
-                    * std::mem::size_of::<f32>() as u64,
+            Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Output Layer Weights Buffer"),
+                contents: bytemuck::cast_slice(&weights),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
+            }))
+        };
 
-            let gradient_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Ouput Layer Gradient Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs
-                    * feed_forward_input.num_inputs
-                    * std::mem::size_of::<f32>() as u64,
+        let bias_buffer = {
+            let biases = WeightDistribution::Xavier.get_bias_distribution(num_outputs);
+
+            device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Output Layer Bias Buffer"),
+                contents: bytemuck::cast_slice(&biases),
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Gradient Coefficient Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            }));
-
-            let loss_function_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Loss Function Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let expected_values_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Expected Values Buffer"),
-                mapped_at_creation: false,
-                size: num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            });
-
-            (
-                dimensions_buffer,
-                weights_buffer,
-                bias_buffer,
-                intermediary_buffer,
-                output_buffer,
-                l_1_norm_buffer,
-                frobenius_norm_buffer,
-                regularization_info_buffer,
-                regularization_output_buffer,
-                gradient_buffer,
-                gradient_coefficient_buffer,
-                loss_function_buffer,
-                expected_values_buffer,
-            )
+            })
         };
 
         let (
@@ -325,6 +208,245 @@ impl OutputLayer {
             regularization_pipeline,
             gradient_descent_pipeline: None,
         }
+    }
+
+    /// Creates a output layer based on a descriptor
+    /// Used for deserializing a model
+    ///
+    /// # Arguments
+    ///
+    /// * `output_layer_descriptor` - descriptor struct containing the output layers information such as inputs, outputs, weights, and basies
+    /// * `feed_forward_input` - `&FeedForwardConnection` detailing the outputs of the previous layer
+    /// * `device` - wgpu device for creating the layer buffers
+    ///
+    /// # Returns
+    ///
+    /// `OutputLayer` instance with the set weights and biases
+    pub fn from_descriptor(
+        output_layer_descriptor: &OutputLayerDescriptor,
+        feed_forward_input: &FeedForwardConnection,
+        device: &Device,
+    ) -> Self {
+        // Create all the buffers necessary in this layer
+        let (
+            intermediary_buffer,
+            output_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            loss_function_buffer,
+            expected_values_buffer,
+            dimensions_buffer,
+            gradient_coefficient_buffer,
+        ) = Self::create_buffers(
+            device,
+            feed_forward_input,
+            output_layer_descriptor.num_outputs,
+        );
+
+        // These buffers are set by the information given in the output layer descriptor
+        let weights_buffer = Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Output Layer Weights Buffer"),
+            contents: bytemuck::cast_slice(&output_layer_descriptor.weights),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        }));
+
+        let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Output Layer Bias Buffer"),
+            contents: bytemuck::cast_slice(&output_layer_descriptor.biases),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let (
+            (input_bind_group_layout, input_bind_group),
+            (feed_forward_bind_group_layout, feed_forward_bind_group),
+            (loss_function_bind_group_layout, loss_function_bind_group),
+            (back_propogation_bind_group_layout, back_propogation_bind_group),
+        ) = Self::create_bind_groups(
+            device,
+            &feed_forward_input.buffer,
+            &dimensions_buffer,
+            &weights_buffer,
+            &bias_buffer,
+            &intermediary_buffer,
+            &output_buffer,
+            &l_1_norm_buffer,
+            &frobenius_norm_buffer,
+            &regularization_info_buffer,
+            &regularization_output_buffer,
+            &gradient_buffer,
+            &gradient_coefficient_buffer,
+            &loss_function_buffer,
+            &expected_values_buffer,
+        );
+
+        let (feed_forward_pipeline, loss_function_pipeline, regularization_pipeline) =
+            Self::create_pipelines(
+                (
+                    &input_bind_group_layout,
+                    &feed_forward_bind_group_layout,
+                    &loss_function_bind_group_layout,
+                    &back_propogation_bind_group_layout,
+                ),
+                device,
+            );
+        Self {
+            num_inputs: output_layer_descriptor.num_inputs,
+            num_outputs: output_layer_descriptor.num_outputs,
+            // -------------------------------
+            dimensions_buffer,
+            weights_buffer,
+            bias_buffer,
+            intermediary_buffer,
+            output_buffer,
+            // -------------------------------
+            loss_function_buffer,
+            expected_values_buffer,
+            // -------------------------------
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            gradient_coefficient_buffer,
+            // -------------------------------
+            input_buffer: feed_forward_input.buffer.clone(),
+            input_bind_group_layout,
+            input_bind_group,
+            // -------------------------------
+            feed_forward_bind_group_layout,
+            feed_forward_bind_group,
+            // -------------------------------
+            loss_function_bind_group_layout,
+            loss_function_bind_group,
+            // -------------------------------
+            back_propogation_bind_group_layout,
+            back_propogation_bind_group,
+            // -------------------------------
+            gradient_descent_bind_group_layout: None,
+            gradient_descent_bind_group: None,
+            // -------------------------------
+            feed_forward_pipeline,
+            loss_function_pipeline,
+            regularization_pipeline,
+            gradient_descent_pipeline: None,
+        }
+    }
+
+    fn create_buffers(
+        device: &Device,
+        feed_forward_input: &FeedForwardConnection,
+        num_outputs: u64,
+    ) -> (
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Buffer,
+        Rc<Buffer>,
+        Rc<Buffer>,
+    ) {
+        let dimensions_buffer = {
+            let mut dimensions = Vec::new();
+            dimensions.push(feed_forward_input.num_inputs as u32);
+            dimensions.push(num_outputs as u32);
+
+            Rc::new(device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Output Layer Dimensions Buffer"),
+                contents: bytemuck::cast_slice(&dimensions),
+                usage: BufferUsages::UNIFORM,
+            }))
+        };
+
+        let intermediary_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Intermediary Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        });
+
+        let output_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        });
+
+        let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer L1 Norm Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Frobenius Norm Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Regularization Info Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<(u32, f32, f32)>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Regularization Output Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * feed_forward_input.num_inputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let gradient_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Ouput Layer Gradient Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * feed_forward_input.num_inputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Gradient Coefficient Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        }));
+
+        let loss_function_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Loss Function Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
+        let expected_values_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Output Layer Expected Values Buffer"),
+            mapped_at_creation: false,
+            size: num_outputs * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        });
+
+        (
+            intermediary_buffer,
+            output_buffer,
+            l_1_norm_buffer,
+            frobenius_norm_buffer,
+            regularization_info_buffer,
+            regularization_output_buffer,
+            gradient_buffer,
+            loss_function_buffer,
+            expected_values_buffer,
+            dimensions_buffer,
+            gradient_coefficient_buffer,
+        )
     }
 
     fn create_bind_groups(
@@ -499,230 +621,6 @@ impl OutputLayer {
             loss_function_pipeline,
             regularization_pipeline,
         )
-    }
-
-    /// Creates a output layer based on a descriptor
-    /// Used for deserializing a model
-    ///
-    /// # Arguments
-    ///
-    /// * `output_layer_descriptor` - descriptor struct containing the output layers information such as inputs, outputs, weights, and basies
-    /// * `feed_forward_input` - `&FeedForwardConnection` detailing the outputs of the previous layer
-    /// * `device` - wgpu device for creating the layer buffers
-    ///
-    /// # Returns
-    ///
-    /// `OutputLayer` instance with the set weights and biases
-    pub fn from_descriptor(
-        output_layer_descriptor: &OutputLayerDescriptor,
-        feed_forward_input: &FeedForwardConnection,
-        device: &Device,
-    ) -> Self {
-        // Create all the buffers necessary in this layer
-        let (
-            dimensions_buffer,
-            weights_buffer,
-            bias_buffer,
-            intermediary_buffer,
-            output_buffer,
-            l_1_norm_buffer,
-            frobenius_norm_buffer,
-            regularization_info_buffer,
-            regularization_output_buffer,
-            gradient_buffer,
-            gradient_coefficient_buffer,
-            loss_function_buffer,
-            expected_values_buffer,
-        ) = {
-            let dimensions_buffer = {
-                let mut dimensions = Vec::new();
-                dimensions.push(output_layer_descriptor.num_inputs as u32);
-                dimensions.push(output_layer_descriptor.num_outputs as u32);
-
-                Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("Output Layer Dimensions Buffer"),
-                    contents: bytemuck::cast_slice(&dimensions),
-                    usage: BufferUsages::UNIFORM,
-                }))
-            };
-
-            let weights_buffer = Rc::new(device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("Output Layer Weights Buffer"),
-                contents: bytemuck::cast_slice(&output_layer_descriptor.weights),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            }));
-
-            let bias_buffer = device.create_buffer_init(&BufferInitDescriptor {
-                label: Some("Output Layer Bias Buffer"),
-                contents: bytemuck::cast_slice(&output_layer_descriptor.biases),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let intermediary_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Intermediary Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let output_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            });
-
-            let l_1_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer L1 Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let frobenius_norm_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Frobenius Norm Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let regularization_info_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Regularization Info Buffer"),
-                mapped_at_creation: false,
-                size: std::mem::size_of::<(u32, f32, f32)>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let regularization_output_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Regularization Output Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs
-                    * output_layer_descriptor.num_inputs
-                    * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let gradient_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Ouput Layer Gradient Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs
-                    * output_layer_descriptor.num_inputs
-                    * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let gradient_coefficient_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Gradient Coefficient Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            }));
-
-            let loss_function_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Loss Function Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-            });
-
-            let expected_values_buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("Output Layer Expected Values Buffer"),
-                mapped_at_creation: false,
-                size: output_layer_descriptor.num_outputs * std::mem::size_of::<f32>() as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-            });
-
-            (
-                dimensions_buffer,
-                weights_buffer,
-                bias_buffer,
-                intermediary_buffer,
-                output_buffer,
-                l_1_norm_buffer,
-                frobenius_norm_buffer,
-                regularization_info_buffer,
-                regularization_output_buffer,
-                gradient_buffer,
-                gradient_coefficient_buffer,
-                loss_function_buffer,
-                expected_values_buffer,
-            )
-        };
-
-        let (
-            (input_bind_group_layout, input_bind_group),
-            (feed_forward_bind_group_layout, feed_forward_bind_group),
-            (loss_function_bind_group_layout, loss_function_bind_group),
-            (back_propogation_bind_group_layout, back_propogation_bind_group),
-        ) = Self::create_bind_groups(
-            device,
-            &feed_forward_input.buffer,
-            &dimensions_buffer,
-            &weights_buffer,
-            &bias_buffer,
-            &intermediary_buffer,
-            &output_buffer,
-            &l_1_norm_buffer,
-            &frobenius_norm_buffer,
-            &regularization_info_buffer,
-            &regularization_output_buffer,
-            &gradient_buffer,
-            &gradient_coefficient_buffer,
-            &loss_function_buffer,
-            &expected_values_buffer,
-        );
-
-        let (feed_forward_pipeline, loss_function_pipeline, regularization_pipeline) =
-            Self::create_pipelines(
-                (
-                    &input_bind_group_layout,
-                    &feed_forward_bind_group_layout,
-                    &loss_function_bind_group_layout,
-                    &back_propogation_bind_group_layout,
-                ),
-                device,
-            );
-        Self {
-            num_inputs: output_layer_descriptor.num_inputs,
-            num_outputs: output_layer_descriptor.num_outputs,
-            // -------------------------------
-            dimensions_buffer,
-            weights_buffer,
-            bias_buffer,
-            intermediary_buffer,
-            output_buffer,
-            // -------------------------------
-            loss_function_buffer,
-            expected_values_buffer,
-            // -------------------------------
-            l_1_norm_buffer,
-            frobenius_norm_buffer,
-            regularization_info_buffer,
-            regularization_output_buffer,
-            gradient_buffer,
-            gradient_coefficient_buffer,
-            // -------------------------------
-            input_buffer: feed_forward_input.buffer.clone(),
-            input_bind_group_layout,
-            input_bind_group,
-            // -------------------------------
-            feed_forward_bind_group_layout,
-            feed_forward_bind_group,
-            // -------------------------------
-            loss_function_bind_group_layout,
-            loss_function_bind_group,
-            // -------------------------------
-            back_propogation_bind_group_layout,
-            back_propogation_bind_group,
-            // -------------------------------
-            gradient_descent_bind_group_layout: None,
-            gradient_descent_bind_group: None,
-            // -------------------------------
-            feed_forward_pipeline,
-            loss_function_pipeline,
-            regularization_pipeline,
-            gradient_descent_pipeline: None,
-        }
     }
 
     /// Creates a descriptor of the output layer to be used for serializing the
@@ -1160,7 +1058,7 @@ impl OutputLayer {
     }
 }
 
-impl BackPropogationLayer for OutputLayer {
+impl BackPropogationLayerConnection for OutputLayer {
     fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
         self.gradient_coefficient_buffer.clone()
     }

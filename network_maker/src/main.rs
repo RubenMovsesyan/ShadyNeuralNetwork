@@ -85,6 +85,6 @@ fn test() {
 fn main() {
     pretty_env_logger::init();
 
-    // train();
-    test();
+    train();
+    // test();
 }
