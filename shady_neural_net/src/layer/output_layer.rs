@@ -551,9 +551,8 @@ impl OutputLayer {
         // through the neural network. This pipeline will not effect any of the
         // weights or biases that are created in this layer
         let feed_forward_pipeline = {
-            let shader = device.create_shader_module(include_wgsl!(
-                "../shaders/output_layer/output_layer_feed_forward.wgsl"
-            ));
+            let shader = device
+                .create_shader_module(include_wgsl!("../shaders/output_layer/feed_forward.wgsl"));
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Output Layer Feed Forward Compute Pipeline Layout"),
