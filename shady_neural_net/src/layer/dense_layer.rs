@@ -321,9 +321,8 @@ impl DenseLayer {
         feed_forward_bind_group_layout: &BindGroupLayout,
         device: &Device,
     ) -> ComputePipeline {
-        let shader: ShaderModule = device.create_shader_module(include_wgsl!(
-            "../shaders/dense_layer/dense_layer_feed_forward.wgsl"
-        ));
+        let shader: ShaderModule =
+            device.create_shader_module(include_wgsl!("../shaders/dense_layer/feed_forward.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Dense Layer Compute Pipeline Layout"),
@@ -335,7 +334,7 @@ impl DenseLayer {
             label: Some("Dense Layer Compute Pipeline"),
             layout: Some(&pipeline_layout),
             module: &shader,
-            entry_point: Some("dense_layer_main"),
+            entry_point: Some("dense_layer_feed_forward_main"),
             compilation_options: PipelineCompilationOptions::default(),
             cache: None,
         })

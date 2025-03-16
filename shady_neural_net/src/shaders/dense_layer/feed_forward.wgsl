@@ -157,7 +157,7 @@ fn dense_layer_feed_forward_main(
                 sum = binary_sigmoid(sum, activation_function.function_parameter);
             }
             case BIPOLAR_SIGMOID: {
-                sum = bipolar_sigmoid(sum, activation_function.function_paramter);
+                sum = bipolar_sigmoid(sum, activation_function.function_parameter);
             }
             case RELU: {
                 sum = relu(sum);
