@@ -869,19 +869,19 @@ impl OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
         }
 
-        let gradient = read_buffer(
-            &self.gradient_coefficient_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let gradient = read_buffer(
+        //     &self.gradient_coefficient_buffer,
+        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         encoder.insert_debug_marker("Sync Point: Output Regularization Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&gradient, device, "Output Layer Gradient Coeff Buffer");
+        // print_buffer(&gradient, device, "Output Layer Gradient Coeff Buffer");
     }
 
     /// Links the learning rate buffer to the layer and generates the bind group
