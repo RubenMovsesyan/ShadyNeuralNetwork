@@ -52,7 +52,7 @@ fn output_layer_feed_forward_main(
             // [a b c d]
             let index = row * m + k;
 
-            sum += weights_buffer[index] * inputs_buffer[k];
+            sum += weights_buffer[index] * input_buffer[k];
         }
 
         // Add the biases to the output sum
@@ -79,8 +79,8 @@ fn output_layer_feed_forward_main(
     // output buffer
     workgroupBarrier();
 
+    var exp_sum: f32 = 0.0;
     if (row < n) {
-        var exp_sum: f32 = 0.0;
         for (var i: u32 = 0; i < n; i++) {
             exp_sum += output_buffer[i];
         }

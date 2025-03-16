@@ -564,7 +564,7 @@ impl OutputLayer {
                 label: Some("Output Layer Feed Forward Compute Pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader,
-                entry_point: Some("output_layer_main"),
+                entry_point: Some("output_layer_feed_forward_main"),
                 compilation_options: PipelineCompilationOptions::default(),
                 cache: None,
             })
@@ -574,9 +574,8 @@ impl OutputLayer {
         // any of the weights or biases in this layer. It is used for computing
         // the cost function associated from the data that is given
         let loss_function_pipeline = {
-            let shader = device.create_shader_module(include_wgsl!(
-                "../shaders/output_layer/output_layer_cost_function.wgsl"
-            ));
+            let shader =
+                device.create_shader_module(include_wgsl!("../shaders/output_layer/loss.wgsl"));
 
             let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Output Layer Cost Function Compute Pipeline Layout"),
@@ -588,7 +587,7 @@ impl OutputLayer {
                 label: Some("Output Layer Cost Function Compute Pipeline"),
                 layout: Some(&pipeline_layout),
                 module: &shader,
-                entry_point: Some("output_layer_cost_main"),
+                entry_point: Some("output_layer_loss_main"),
                 compilation_options: PipelineCompilationOptions::default(),
                 cache: None,
             })
