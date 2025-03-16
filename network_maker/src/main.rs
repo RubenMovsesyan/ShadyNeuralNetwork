@@ -37,17 +37,18 @@ fn train() {
         let expected = generate_x_y_function(rand_x, rand_y);
 
         let _vals = neural_net.feed_forward(vec![rand_x, rand_y]).expect("C");
-        let cost = neural_net.get_cost(expected.to_vec()).expect("G");
+        // let cost = neural_net.get_cost(expected.to_vec()).expect("G");
 
-        if cost.is_nan() {
-            println!("Failed");
-            break;
-        }
+        // if cost.is_nan() {
+        //     println!("Failed");
+        //     break;
+        // }
 
+        neural_net.set_loss(expected.to_vec()).expect("G");
         neural_net.back_propogate();
-        neural_net.gradient_decent();
+        // neural_net.gradient_decent();
 
-        print!("\rCost: {}", cost);
+        print!("\rCost: {}", neural_net.get_cost().expect("F"));
         _ = stdout().flush();
     }
     println!();
@@ -65,20 +66,20 @@ fn test() {
 
         let expected = generate_x_y_function(rand_x, rand_y);
 
-        let vals = neural_net.feed_forward(vec![rand_x, rand_y]).expect("C");
+        _ = neural_net.feed_forward(vec![rand_x, rand_y]);
 
-        let cost = vals
-            .iter()
-            .zip(expected.iter())
-            .map(|(pred, expe)| pred - expe)
-            .collect::<Vec<f32>>();
+        // let cost = vals
+        //     .iter()
+        //     .zip(expected.iter())
+        //     .map(|(pred, expe)| pred - expe)
+        //     .collect::<Vec<f32>>();
 
-        println!(
-            "Vals: {:#?}\nExpected: {:#?}\n Cost: {}",
-            vals,
-            expected,
-            cost.iter().sum::<f32>() / cost.len() as f32
-        );
+        // println!(
+        //     "Vals: {:#?}\nExpected: {:#?}\n Cost: {}",
+        //     vals,
+        //     expected,
+        //     cost.iter().sum::<f32>() / cost.len() as f32
+        // );
     }
 }
 

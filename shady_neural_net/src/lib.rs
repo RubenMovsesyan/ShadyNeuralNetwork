@@ -12,9 +12,9 @@ use std::{
 use log::*;
 
 use layer::{
-    BackPropogationConnection, BackPropogationLayerConnection, DenseLayer, DenseLayerDescriptor,
-    InputLayer, InputLayerDescriptor, NeuralNetLayer, NeuralNetLayerDescriptor, OutputLayer,
-    OutputLayerDescriptor, errors::*,
+    BackPropogationConnection, BackPropogationLayer, BackPropogationLayerConnection, DenseLayer,
+    DenseLayerDescriptor, FeedForwardLayer, InputLayer, InputLayerDescriptor, NeuralNetLayer,
+    NeuralNetLayerDescriptor, OutputLayer, OutputLayerDescriptor, errors::*,
 };
 use wgpu::{
     Backends, Buffer, BufferDescriptor, BufferUsages, Device, DeviceDescriptor, Features, Instance,
@@ -206,9 +206,9 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
+        let new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
 
-        new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        // new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
@@ -237,7 +237,7 @@ impl NeuralNet {
         let mut new_output_layer =
             OutputLayer::from_descriptor(output_layer_descriptor, &connecting_buffer, &self.device);
 
-        new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        // new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
@@ -261,7 +261,8 @@ impl NeuralNet {
         );
     }
 
-    pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<Vec<f32>, Box<dyn Error>> {
+    // pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<Vec<f32>, Box<dyn Error>> {
+    pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<(), Box<dyn Error>> {
         // FIXME fix this
         match self.input_layer.as_ref().unwrap() {
             NeuralNetLayer::Input(input_layer) => input_layer
@@ -281,13 +282,15 @@ impl NeuralNet {
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                Ok(output_layer.feed_forward(&self.device, &self.queue))
+                // Ok(output_layer.feed_forward(&self.device, &self.queue))
+                output_layer.feed_forward(&self.device, &self.queue);
+                Ok(())
             }
             _ => return Err(Box::new(NoHiddenLayersAddedError)),
         }
     }
 
-    pub fn get_cost(&self, mut expected_values: Vec<f32>) -> Result<f32, Box<dyn Error>> {
+    pub fn set_loss(&self, mut expected_values: Vec<f32>) -> Result<(), Box<dyn Error>> {
         // Normalize the input vector
         {
             let avg = expected_values.iter().sum::<f32>() / expected_values.len() as f32;
@@ -299,9 +302,19 @@ impl NeuralNet {
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                Ok(output_layer.compute_loss(&expected_values, &self.device, &self.queue))
+                output_layer.set_expected_weights(&expected_values, &self.queue);
+                Ok(())
             }
-            _ => return Err(Box::new(NoHiddenLayersAddedError)),
+            _ => return Err(Box::new(NoOutputLayerAddedError)),
+        }
+    }
+
+    pub fn get_cost(&self) -> Result<f32, Box<dyn Error>> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                Ok(output_layer.get_cost(&self.device, &self.queue))
+            }
+            _ => Err(Box::new(NoOutputLayerAddedError)),
         }
     }
 
@@ -335,19 +348,19 @@ impl NeuralNet {
         }
     }
 
-    pub fn gradient_decent(&self) {
-        for layer in self.hidden_layers.iter() {
-            if let NeuralNetLayer::Dense(dense_layer) = layer {
-                dense_layer.gradient_descent(&self.device, &self.queue);
-            }
-        }
+    // pub fn gradient_decent(&self) {
+    //     for layer in self.hidden_layers.iter() {
+    //         if let NeuralNetLayer::Dense(dense_layer) = layer {
+    //             dense_layer.gradient_descent(&self.device, &self.queue);
+    //         }
+    //     }
 
-        if let Some(layer) = self.output_layer.as_ref() {
-            if let NeuralNetLayer::Output(output_layer) = layer {
-                output_layer.gradient_descent(&self.device, &self.queue);
-            }
-        }
-    }
+    //     if let Some(layer) = self.output_layer.as_ref() {
+    //         if let NeuralNetLayer::Output(output_layer) = layer {
+    //             output_layer.gradient_descent(&self.device, &self.queue);
+    //         }
+    //     }
+    // }
 
     pub fn save_model(&self) -> Result<NeuralNetDesciriptor, Box<dyn Error>> {
         let input_layer_descriptor: InputLayerDescriptor = self

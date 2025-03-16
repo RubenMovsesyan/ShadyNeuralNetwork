@@ -19,6 +19,7 @@ var<storage, read_write> loss_function_buffer: array<f32>;
 @group(0) @binding(4)
 var<storage, read_write> gradient_coefficient_buffer: array<f32>;
 
+// -((o_n * ln(y_n) + ((1 - y_n) * ln(1 - o_n)))
 fn binary_cross_entropy_loss_gradient(predicted: f32, expected: f32) -> f32 {
     let top = predicted - expected;
     let bottom = (predicted - 1.0) * predicted;
@@ -31,7 +32,7 @@ fn binary_cross_entropy_loss_gradient(predicted: f32, expected: f32) -> f32 {
 }
 
 
-// -((o_n * ln(y_n) + ((1 - y_n) * ln(1 - o_n)))
+// -(o - y) / ((o - 1)o)
 fn binary_cross_entropy_loss(predicted: f32, expected: f32) -> f32 {
     let part_1 = expected * log(predicted);
     let part_2 = (1.0 - expected) * log(1.0 - predicted);

@@ -32,7 +32,7 @@ var<uniform> dims: vec2<u32>;
 
 // The buffer where the weigths are stored
 @group(0) @binding(5)
-var<storage, read> weights: array<f32>;
+var<storage, read_write> weights: array<f32>;
 
 // The buffer where the gradient is calculated
 @group(0) @binding(6)
@@ -46,9 +46,17 @@ var<storage, read> gradient_coefficient: array<f32>;
 @group(1) @binding(0)
 var<storage, read> input_buffer: array<f32>;
 
+// Uniform for the learning rate
+@group(2) @binding(0)
+var<uniform> learning_rate: f32;
+
 fn calculate_gradient(index: u32, row: u32, col: u32) -> f32 {
-    let dJdo = gradient_coefficient[row];
-    let h = input_buffer[col];
+    //      [ x y z w ] This is the input buffer
+    // [ 1 ]          
+    // [ a ]            This is the gradient gradient coefficient
+    // [ a ]
+    let dJdo = gradient_coefficient[col];
+    let h = input_buffer[row];
     let regularization = regularization_output[index];
 
     return dJdo * h + regularization;
@@ -60,9 +68,9 @@ fn output_layer_back_propogate_main(
 ) {
     let row = global_id.x;
     let col = global_id.y;
-    // Num inputs
+    // Num inputs (size of the input buffer)
     let m = dims.x;
-    // Num outputs
+    // Num outputs (size of the gradient coefficient)
     let n = dims.y;
 
     // The index of the weights buffer
@@ -77,6 +85,8 @@ fn output_layer_back_propogate_main(
 
     if (row < m && col < n) {
         let weight = weights[index];
+        let lambda_1 = regularization_info.hyper_parameter_1;
+        let lambda_2 = regularization_info.hyper_parameter_2;
 
         // Get the regularization term here basd on the weights
         switch regularization_info.function_type {
@@ -107,8 +117,22 @@ fn output_layer_back_propogate_main(
 
                 regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
             }
+            default: {}
         }
 
-        gradient[index] = calculate_gradient(index, col, row);
+        gradient[index] = calculate_gradient(index, row, col);
     }
+
+    workgroupBarrier();
+
+    // // normalize the gradient
+    // if (row < m && col < n) {
+        
+    // }
+
+    if (row < m && col < n) {
+        weights[index] = weights[index] + (learning_rate * gradient[index]);
+    }
+
+    workgroupBarrier();
 }
