@@ -306,12 +306,31 @@ impl NeuralNet {
 
     pub fn set_loss(&self, mut expected_values: Vec<f32>) -> Result<(), Box<dyn Error>> {
         // Normalize the input vector
+        // {
+        //     let avg = expected_values.iter().sum::<f32>() / expected_values.len() as f32;
+        //     expected_values = expected_values
+        //         .iter_mut()
+        //         .map(|value| *value / avg)
+        //         .collect();
+        // }
+
+        // Softmax the input vector
         {
-            let avg = expected_values.iter().sum::<f32>() / expected_values.len() as f32;
-            expected_values = expected_values
+            let max_val = expected_values
+                .iter()
+                .max_by(|x, y| x.partial_cmp(y).unwrap())
+                .unwrap()
+                .clone();
+
+            expected_values
                 .iter_mut()
-                .map(|value| *value / avg)
-                .collect();
+                .for_each(|value| *value = f32::exp(*value - max_val));
+
+            let exp_sum = expected_values.iter().sum::<f32>();
+
+            expected_values
+                .iter_mut()
+                .for_each(|value| *value /= exp_sum);
         }
 
         match self.output_layer.as_ref().unwrap() {

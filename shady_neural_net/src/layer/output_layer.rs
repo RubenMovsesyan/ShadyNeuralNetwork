@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::create_buffer_bind_group;
 use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::regularization::*;
-use crate::utils::{get_buffer, read_buffer};
+use crate::utils::{get_buffer, print_buffer, read_buffer};
 
 use super::weight_distribution::WeightDistribution;
 use super::{
@@ -915,6 +915,27 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let predicted_values = read_buffer(
+            &self.output_buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        let expected_values = read_buffer(
+            &self.expected_values_buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        let loss_function = read_buffer(
+            &self.loss_function_buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         encoder.insert_debug_marker("Sync Point: Output Loss Pipeline Complete");
         device.poll(Maintain::Wait);
 
@@ -977,5 +998,13 @@ impl BackPropogationLayer for OutputLayer {
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+
+        // print_buffer(&predicted_values, device, "Output Layer Predicted Values");
+        // print_buffer(
+        //     &expected_values,
+        //     device,
+        //     "Output Layer Expected Values Function",
+        // );
+        // print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
     }
 }

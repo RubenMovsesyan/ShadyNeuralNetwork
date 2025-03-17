@@ -140,7 +140,7 @@ fn output_layer_back_propogate_main(
     // }
 
     if (row < m && col < n) {
-        weights[index] = weights[index] - (learning_rate * gradient[index]);
+        weights[index] = weights[index] + (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();

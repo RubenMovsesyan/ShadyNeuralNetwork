@@ -1,6 +1,6 @@
-use std::io::{Write, stdout};
+use std::io::{Write, stdin, stdout};
 
-use activation::{ActivationFunction, BinarySigmoidFunction};
+use activation::ActivationFunction;
 #[allow(unused_imports)]
 use log::*;
 
@@ -11,28 +11,34 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
     let mut neural_net = NeuralNet::new().expect("Could not initialize Neural Net");
     neural_net
         .add_input_layer(2)?
-        .add_dense_layer(
-            4,
-            ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
-            // ActivationFunction::Step,
-        )?
-        .add_dense_layer(
-            4,
-            ActivationFunction::BinarySigmoid(BinarySigmoidFunction { k: 1.0 }),
-            // ActivationFunction::Step,
-        )?
+        .add_dense_layer(3, ActivationFunction::ReLU)?
         .add_output_layer(2)?;
 
     Ok(neural_net)
 }
 
+fn print_progress(progress: usize, total: usize) {
+    let bar_size = 50;
+    let ratio = progress as f32 / total as f32;
+    let amount = (bar_size as f32 * ratio) as usize;
+    print!("\r[");
+    for _ in 0..amount {
+        print!("=");
+    }
+    for _ in amount..bar_size - 1 {
+        print!(" ");
+    }
+    print!("]");
+}
+
 fn train() {
     let neural_net = create_neural_net().expect("Could not create neural net");
     neural_net.set_learning_rate(0.01);
+    let passes = 500;
 
-    for _ in 0..50 {
-        let rand_x = rand::random_range(-1.0..=1.0);
-        let rand_y = rand::random_range(-1.0..=1.0);
+    for i in 0..passes {
+        let rand_x = rand::random_range(0.0..=1.0);
+        let rand_y = rand::random_range(0.0..=1.0);
 
         let expected = generate_x_y_function(rand_x, rand_y);
 
@@ -47,13 +53,22 @@ fn train() {
             break;
         }
 
-        print!("\rCost: {}", cost);
+        // println!("\rCost: {}", cost);
+        // print!("Continue: ");
         _ = stdout().flush();
+
+        _ = neural_net.save_model_to_file("test_files/nn_test.json");
+
+        // let mut buffer = String::new();
+        // _ = stdin().read_line(&mut buffer);
+
+        neural_net.set_learning_rate(cost * 0.01);
+
+        print_progress(i, passes);
     }
+
     println!();
     println!("Done!");
-
-    _ = neural_net.save_model_to_file("test_files/nn_test.json");
 }
 
 fn test() {

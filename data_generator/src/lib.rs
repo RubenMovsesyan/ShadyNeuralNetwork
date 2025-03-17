@@ -1,16 +1,18 @@
 pub fn generate_x_y_function(x: f32, y: f32) -> [f32; 2] {
-    let mut new_x = x * y + (x / y);
-    let mut new_y = 0.5 * x + (y / x);
+    // let mut new_x = x * y + (x / y);
+    // let mut new_y = 0.5 * x + (y / x);
 
-    let max_val = new_x.max(new_y);
+    // let max_val = new_x.max(new_y);
 
-    new_x = f32::exp(new_x - max_val);
-    new_y = f32::exp(new_y - max_val);
+    // new_x = f32::exp(new_x - max_val);
+    // new_y = f32::exp(new_y - max_val);
 
-    let exp_sum = new_x + new_y;
+    // let exp_sum = new_x + new_y;
 
-    new_x /= exp_sum;
-    new_y /= exp_sum;
+    // new_x /= exp_sum;
+    // new_y /= exp_sum;
+    let new_x = x * x;
+    let new_y = y * y / 2.0;
 
     [new_x, new_y]
 }

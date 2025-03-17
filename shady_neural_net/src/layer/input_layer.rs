@@ -9,10 +9,14 @@ use wgpu::{
     include_wgsl,
 };
 
-use crate::create_buffer_bind_group;
+use crate::{
+    create_buffer_bind_group,
+    utils::{print_buffer, read_buffer},
+};
 
 use super::{
-    FeedForwardLayerConnection, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError,
+    FeedForwardLayerConnection, WORK_GROUP_SIZE, compute_workgroup_size,
+    errors::InputLengthMismatchError,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -209,10 +213,19 @@ impl InputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let inputs = read_buffer(
+            &self.buffer,
+            self.num_inputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         encoder.insert_debug_marker("Sync Point: Input Pipeline Finished");
 
         queue.submit(Some(encoder.finish()));
         device.poll(Maintain::Wait);
+
+        // print_buffer(&inputs, device, "Input Layer Buffer");
 
         Ok(())
     }
