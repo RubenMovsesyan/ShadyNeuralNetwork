@@ -103,7 +103,11 @@ fn output_layer_back_propogate_main(
                 regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
             }
             case RIDGE: {
-                regularization_output[index] = lambda_1 * (weight / frobenius_norm);
+                if (frobenius_norm == 0.0) {
+                    regularization_output[index] = 0.0;
+                } else {
+                    regularization_output[index] = lambda_1 * (weight / frobenius_norm);
+                }
             }
             case ELASTIC_NET_REGRESSION: {
                 // Find the gradient of the L1 norm
@@ -115,7 +119,12 @@ fn output_layer_back_propogate_main(
                     grad = -1.0;
                 }
 
-                regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
+                if (frobenius_norm == 0.0) {
+                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
+                } else {
+                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
+                }
+
             }
             default: {}
         }
@@ -131,7 +140,7 @@ fn output_layer_back_propogate_main(
     // }
 
     if (row < m && col < n) {
-        weights[index] = weights[index] + (learning_rate * gradient[index]);
+        weights[index] = weights[index] - (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();

@@ -28,27 +28,26 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
 
 fn train() {
     let neural_net = create_neural_net().expect("Could not create neural net");
-    neural_net.set_learning_rate(0.1);
+    neural_net.set_learning_rate(0.01);
 
-    for _ in 0..1000 {
+    for _ in 0..50 {
         let rand_x = rand::random_range(-1.0..=1.0);
         let rand_y = rand::random_range(-1.0..=1.0);
 
         let expected = generate_x_y_function(rand_x, rand_y);
 
         let _vals = neural_net.feed_forward(vec![rand_x, rand_y]).expect("C");
-        // let cost = neural_net.get_cost(expected.to_vec()).expect("G");
-
-        // if cost.is_nan() {
-        //     println!("Failed");
-        //     break;
-        // }
 
         neural_net.set_loss(expected.to_vec()).expect("G");
         neural_net.back_propogate();
-        // neural_net.gradient_decent();
+        let cost = neural_net.get_cost().expect("G");
 
-        print!("\rCost: {}", neural_net.get_cost().expect("F"));
+        if cost.is_nan() {
+            println!("Failed");
+            break;
+        }
+
+        print!("\rCost: {}", cost);
         _ = stdout().flush();
     }
     println!();

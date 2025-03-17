@@ -97,7 +97,11 @@ fn dense_layer_back_propogation_main(
                 regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
             }
             case RIDGE: {
-                regularization_output[index] = lambda_1 * (weight / frobenius_norm);
+                if (frobenius_norm == 0.0) {
+                    regularization_output[index] = 0.0;
+                } else {
+                    regularization_output[index] = lambda_1 * (weight / frobenius_norm);
+                }
             }
             case ELASTIC_NET_REGRESSION: {
                 // Find the gradient of the L1 norm
@@ -109,7 +113,11 @@ fn dense_layer_back_propogation_main(
                     grad = -1.0;
                 }
 
-                regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
+                if (frobenius_norm == 0.0) {
+                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
+                } else {
+                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
+                }
             }
             default: {}
         }

@@ -142,7 +142,6 @@ fn create_buffers(
     Buffer,
     Buffer,
     Buffer,
-    Buffer,
     Rc<Buffer>,
     Rc<Buffer>,
     Rc<Buffer>,
@@ -229,13 +228,6 @@ fn create_buffers(
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
     });
 
-    let learning_rate_buffer = device.create_buffer(&BufferDescriptor {
-        label: Some("Output Layer Learning Rate Buffer"),
-        mapped_at_creation: false,
-        size: std::mem::size_of::<f32>() as u64,
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-    });
-
     let gradient_back_prop_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
         label: Some("Output Layer Gradient Back Prop Buffer"),
         mapped_at_creation: false,
@@ -253,7 +245,6 @@ fn create_buffers(
         gradient_buffer,
         loss_function_buffer,
         expected_values_buffer,
-        learning_rate_buffer,
         gradient_back_prop_buffer,
         dimensions_buffer,
         gradient_coefficient_buffer,
@@ -427,6 +418,7 @@ impl OutputLayer {
     pub fn new(
         feed_forward_input: &FeedForwardConnection,
         num_outputs: u64,
+        learning_rate_buffer: &Buffer,
         device: &Device,
     ) -> Self {
         // Create all the buffers necessary in this layer
@@ -440,7 +432,6 @@ impl OutputLayer {
             gradient_buffer,
             loss_function_buffer,
             expected_values_buffer,
-            learning_rate_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
             gradient_coefficient_buffer,
@@ -490,7 +481,7 @@ impl OutputLayer {
             &gradient_back_prop_buffer,
             &loss_function_buffer,
             &expected_values_buffer,
-            &learning_rate_buffer,
+            learning_rate_buffer,
         );
 
         let (feed_forward_pipeline, loss_function_pipeline, back_propogation_pipeline) =
@@ -566,6 +557,7 @@ impl OutputLayer {
     pub fn from_descriptor(
         output_layer_descriptor: &OutputLayerDescriptor,
         feed_forward_input: &FeedForwardConnection,
+        learning_rate_buffer: &Buffer,
         device: &Device,
     ) -> Self {
         // Create all the buffers necessary in this layer
@@ -579,7 +571,6 @@ impl OutputLayer {
             gradient_buffer,
             loss_function_buffer,
             expected_values_buffer,
-            learning_rate_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
             gradient_coefficient_buffer,
@@ -623,7 +614,7 @@ impl OutputLayer {
             &gradient_buffer,
             &gradient_coefficient_buffer,
             &gradient_back_prop_buffer,
-            &learning_rate_buffer,
+            learning_rate_buffer,
             &loss_function_buffer,
             &expected_values_buffer,
         );
@@ -850,7 +841,7 @@ impl OutputLayer {
 }
 
 impl BackPropogationLayerConnection for OutputLayer {
-    fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
+    fn get_ceoff_back_prop_buffer(&self) -> Rc<Buffer> {
         self.gradient_back_prop_buffer.clone()
     }
 

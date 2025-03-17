@@ -181,7 +181,6 @@ fn create_buffers(
     Rc<Buffer>,
     Rc<Buffer>,
     Rc<Buffer>,
-    Buffer,
 ) {
     let dimensions_buffer = {
         let mut dimensions = Vec::new();
@@ -319,13 +318,6 @@ fn create_buffers(
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
     }));
 
-    let learning_rate_buffer = device.create_buffer(&BufferDescriptor {
-        label: Some("Dense Layer Learning Rate Buffer"),
-        mapped_at_creation: false,
-        size: std::mem::size_of::<f32>() as u64,
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
-    });
-
     (
         activation_function_buffer,
         intermediary_buffer,
@@ -339,12 +331,11 @@ fn create_buffers(
         dimensions_buffer,
         output_buffer,
         gradient_coefficient_buffer,
-        learning_rate_buffer,
     )
 }
 
 /// Dense layer struct used in neural net
-#[allow(dead_code)]
+// #[allow(dead_code)]
 #[derive(Debug)]
 pub struct DenseLayer {
     pub num_nodes: u64,
@@ -368,7 +359,6 @@ pub struct DenseLayer {
     gradient_coefficient_buffer: Rc<Buffer>,
     gradient_intermediary_buffer: Buffer,
     gradient_back_prop_buffer: Rc<Buffer>,
-    learning_rate_buffer: Buffer,
 
     // Input Bind group information
     input_buffer: Rc<Buffer>,
@@ -426,6 +416,7 @@ impl DenseLayer {
         input_connecting_bind_group: &FeedForwardConnection,
         num_nodes: u64,
         activation_function: ActivationFunction,
+        learning_rate_buffer: &Buffer,
         device: &Device,
     ) -> Self {
         // Create all the buffers necessary in this layer
@@ -442,7 +433,6 @@ impl DenseLayer {
             dimensions_buffer,
             output_buffer,
             gradient_coefficient_buffer,
-            learning_rate_buffer,
         ) = create_buffers(
             device,
             input_connecting_bind_group,
@@ -496,7 +486,7 @@ impl DenseLayer {
             &regularization_output_buffer,
             &gradient_buffer,
             &gradient_coefficient_buffer,
-            &learning_rate_buffer,
+            learning_rate_buffer,
         );
 
         // Create the pipeline from the bind group layout
@@ -532,7 +522,6 @@ impl DenseLayer {
             gradient_coefficient_buffer,
             gradient_intermediary_buffer,
             gradient_back_prop_buffer,
-            learning_rate_buffer,
             // ------------------------------------
             input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout,
@@ -581,6 +570,7 @@ impl DenseLayer {
     pub fn from_descriptor(
         dense_layer_descriptor: &DenseLayerDescriptor,
         input_connecting_bind_group: &FeedForwardConnection,
+        learning_rate_buffer: &Buffer,
         device: &Device,
     ) -> Self {
         // Create all the buffers necessary in this layer
@@ -597,7 +587,6 @@ impl DenseLayer {
             dimensions_buffer,
             output_buffer,
             gradient_coefficient_buffer,
-            learning_rate_buffer,
         ) = create_buffers(
             device,
             input_connecting_bind_group,
@@ -642,7 +631,7 @@ impl DenseLayer {
             &regularization_output_buffer,
             &gradient_buffer,
             &gradient_coefficient_buffer,
-            &learning_rate_buffer,
+            learning_rate_buffer,
         );
 
         // Create the pipeline from the bind group layout
@@ -678,7 +667,6 @@ impl DenseLayer {
             gradient_coefficient_buffer,
             gradient_intermediary_buffer,
             gradient_back_prop_buffer,
-            learning_rate_buffer,
             // ------------------------------------
             input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout,
@@ -770,12 +758,6 @@ impl DenseLayer {
         device: &Device,
         back_propogation_connection: &BackPropogationConnection,
     ) {
-        self.next_layer_gradient_coefficient_buffer = Some(
-            back_propogation_connection
-                .gradient_coefficient_buffer
-                .clone(),
-        );
-
         let (coeff_bind_group_layout, coeff_bind_group) = create_buffer_bind_group!(
             device,
             "Dense Layer Coefficient Bind Group",
@@ -795,11 +777,16 @@ impl DenseLayer {
             ),
             (
                 6,
-                self.gradient_coefficient_buffer,
+                &back_propogation_connection.grad_coeff_back_prop_buffer,
                 Bbt::Storage { read_only: true }
             ),
             (
                 7,
+                self.gradient_coefficient_buffer,
+                Bbt::Storage { read_only: false }
+            ),
+            (
+                8,
                 self.gradient_back_prop_buffer,
                 Bbt::Storage { read_only: false }
             )
@@ -826,80 +813,10 @@ impl DenseLayer {
             })
         };
 
-        // Create the pipeline to compute the regularization function
-        // let regularization_pipeline = {
-        //     let shader = device.create_shader_module(include_wgsl!(
-        //         "../shaders/dense_layer/dense_layer_regularization.wgsl"
-        //     ));
-
-        //     let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        //         label: Some("Dense Layer Regularization Compute Pipeline Layout"),
-        //         bind_group_layouts: &[
-        //             &self.input_bind_group_layout,
-        //             &self.back_propogation_bind_group_layout,
-        //             &next_layer_bind_group_layout,
-        //         ],
-        //         push_constant_ranges: &[],
-        //     });
-
-        //     device.create_compute_pipeline(&ComputePipelineDescriptor {
-        //         label: Some("Dense Layer Regularization Compute Pipeline"),
-        //         layout: Some(&pipeline_layout),
-        //         module: &shader,
-        //         entry_point: Some("dense_layer_regularization_main"),
-        //         compilation_options: PipelineCompilationOptions::default(),
-        //         cache: None,
-        //     })
-        // };
-
-        // self.next_layer_bind_group_layout = Some(next_layer_bind_group_layout);
-        // self.next_layer_bind_group = Some(next_layer_bind_group);
-
-        // self.regularization_pipeline = Some(regularization_pipeline);
         self.coeff_bind_group_layout = Some(coeff_bind_group_layout);
         self.coeff_bind_group = Some(coeff_bind_group);
         self.coeff_pipeline = Some(coeff_pipeline);
     }
-
-    // Runs the feed forward algorithm through the dense layer and stores
-    // the output before the activation function in the intermediary buffer
-    // the the output after the activation function in the output buffer
-    //
-    // # Arguments
-    //
-    // * `device` - reference to the wgpu device to run shaders
-    // * `queue` - reference to the wgpu queue to submit commands to the gpu
-    // pub fn feed_forward(&self, device: &Device, queue: &Queue) {
-    //     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-    //         label: Some("Input Layer Command Encoder"),
-    //     });
-
-    //     // Run the pipeline
-    //     {
-    //         let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
-
-    //         // Begin the compute pass
-    //         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-    //             label: Some("Dense Layer Compute Pass"),
-    //             timestamp_writes: None,
-    //         });
-
-    //         // Set the pipeline
-    //         compute_pass.set_pipeline(&self.feed_forward_pipeline);
-
-    //         // Set the bind group
-    //         compute_pass.set_bind_group(0, &self.input_bind_group, &[]);
-    //         compute_pass.set_bind_group(1, &self.feed_forward_bind_group, &[]);
-
-    //         // Dispatch the workgroups
-    //         compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
-    //     }
-
-    //     encoder.insert_debug_marker("Sync Point: Dense Pipeline Finished");
-    //     device.poll(Maintain::Wait);
-
-    //     queue.submit(Some(encoder.finish()));
-    // }
 
     /// Generates the frobenius norm of the weight matrix
     /// and stores it in the GPU buffer
@@ -984,231 +901,6 @@ impl DenseLayer {
 
         l_1_norm
     }
-
-    // Generates the regularization for the layer with the
-    // chosen regularization function and store the result
-    // in the gpu buffer to be used for back propogation
-    //
-    // # Arguments
-    //
-    // * `regularization` - A regularization container that contains the regularization function and the hyper paramter
-    // * `device` - a reference to wgpu device to send commands to
-    // * `queue` - a reference to wgpu queue to send command with
-    // pub fn back_propogate(&self, regularization: Regularization, device: &Device, queue: &Queue) {
-    //     // representation of struct to send to gpu
-    //     #[repr(C)]
-    //     #[derive(Pod, Zeroable, Copy, Clone)]
-    //     struct RegRepr {
-    //         function: u32,
-    //         hyper_parameter_1: f32,
-    //         hyper_parameter_2: f32,
-    //     }
-
-    //     match regularization.function {
-    //         RegularizationFunction::Lasso => {
-    //             _ = self.generate_weights_l_1_norm(device, queue);
-
-    //             queue.write_buffer(
-    //                 &self.regularization_info_buffer,
-    //                 0,
-    //                 bytemuck::cast_slice(&[RegRepr {
-    //                     function: 0,
-    //                     hyper_parameter_1: regularization.hyper_parameter_1,
-    //                     hyper_parameter_2: 0.0,
-    //                 }]),
-    //             );
-    //         }
-    //         RegularizationFunction::Ridge => {
-    //             _ = self.generate_weights_frobenius_norm(device, queue);
-
-    //             queue.write_buffer(
-    //                 &self.regularization_info_buffer,
-    //                 0,
-    //                 bytemuck::cast_slice(&[RegRepr {
-    //                     function: 1,
-    //                     hyper_parameter_1: regularization.hyper_parameter_1,
-    //                     hyper_parameter_2: 0.0,
-    //                 }]),
-    //             );
-    //         }
-    //         RegularizationFunction::ElasticNetRegression => {
-    //             _ = self.generate_weights_l_1_norm(device, queue);
-    //             _ = self.generate_weights_frobenius_norm(device, queue);
-
-    //             queue.write_buffer(
-    //                 &self.regularization_info_buffer,
-    //                 0,
-    //                 bytemuck::cast_slice(&[RegRepr {
-    //                     function: 2,
-    //                     hyper_parameter_1: regularization.hyper_parameter_1,
-    //                     hyper_parameter_2: regularization.hyper_parameter_2,
-    //                 }]),
-    //             );
-    //         }
-    //     }
-
-    //     // Compute the gradient coefficient first
-    //     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-    //         label: Some("Dense Layer Gradient Coefficient Command Encoder"),
-    //     });
-
-    //     {
-    //         let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
-
-    //         // Begin the compute pass
-    //         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-    //             label: Some("Dense Layer Gradient Coefficient Compute Pass"),
-    //             timestamp_writes: None,
-    //         });
-
-    //         // Set the pipeline
-    //         compute_pass.set_pipeline(self.coefficient_forming_pipeline.as_ref().unwrap());
-
-    //         // Set the Bind Groups
-    //         compute_pass.set_bind_group(0, self.next_layer_bind_group.as_ref().unwrap(), &[]);
-    //         compute_pass.set_bind_group(1, &self.coefficient_forming_bind_group, &[]);
-
-    //         // Dispatch the work groups
-    //         compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
-    //     }
-
-    //     encoder
-    //         .insert_debug_marker("Sync Point: Dense Layer Gradient Coefficient Pipeline Finished");
-    //     device.poll(Maintain::Wait);
-
-    //     queue.submit(Some(encoder.finish()));
-
-    //     // The main Back propogation pass
-    //     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-    //         label: Some("Dense Layer Back Propogation Command Encoder"),
-    //     });
-
-    //     {
-    //         let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
-    //             (self.num_inputs as u32, self.num_nodes as u32),
-    //             (D2_WORK_GROUP_SIZE, D2_WORK_GROUP_SIZE),
-    //         );
-
-    //         // Begin the compute pass
-    //         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-    //             label: Some("Dense Layer Back Propogation Compute Pass"),
-    //             timestamp_writes: None,
-    //         });
-
-    //         // Set the pipeline
-    //         compute_pass.set_pipeline(self.regularization_pipeline.as_ref().unwrap());
-
-    //         // Set the bind groups
-    //         compute_pass.set_bind_group(0, &self.input_bind_group, &[]);
-    //         compute_pass.set_bind_group(1, &self.back_propogation_bind_group, &[]);
-    //         compute_pass.set_bind_group(2, self.next_layer_bind_group.as_ref().unwrap(), &[]);
-
-    //         // Dispatch the workgroups
-    //         compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
-    //     }
-
-    //     // let gradient = read_buffer(
-    //     //     &self.gradient_coefficient_buffer,
-    //     //     self.num_nodes * std::mem::size_of::<f32>() as u64,
-    //     //     device,
-    //     //     &mut encoder,
-    //     // );
-
-    //     encoder.insert_debug_marker("Sync Point: Dense Layer Back Propogation Pipeline Finished");
-    //     device.poll(Maintain::Wait);
-
-    //     queue.submit(Some(encoder.finish()));
-
-    //     // print_buffer(&gradient, device, "Dense Layer Gradient Coeff Buffer");
-    // }
-
-    // Links the learning rate buffer to the layer and generates the bind group
-    // information for the gradient descent pass
-    //
-    // # Arguments
-    //
-    // * `device` - reference to the wgpu device to create the buffers
-    // * `learning_rate_buffer` - buffer containing the learning rate uniform
-    // pub fn link_gradient_descent_pipeline(
-    //     &mut self,
-    //     device: &Device,
-    //     learning_rate_buffer: &Buffer,
-    // ) {
-    //     let (gradient_descent_bind_group_layout, gradient_descent_bind_group) = create_buffer_bind_group!(
-    //         device,
-    //         "Dense Layer Gradient Descent Bind Group",
-    //         (0, learning_rate_buffer, Bbt::Uniform),
-    //         (1, &self.gradient_buffer, Bbt::Storage { read_only: true }),
-    //         (2, &self.weights_buffer, Bbt::Storage { read_only: false }),
-    //         (3, &self.dimensions_buffer, Bbt::Uniform)
-    //     );
-
-    //     let gradient_descent_pipeline = {
-    //         let shader = device.create_shader_module(include_wgsl!(
-    //             "../shaders/dense_layer/dense_layer_gradient_descent.wgsl"
-    //         ));
-
-    //         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-    //             label: Some("Dense Layer Gradient Descent Compute Pipeline Layout"),
-    //             bind_group_layouts: &[&gradient_descent_bind_group_layout],
-    //             push_constant_ranges: &[],
-    //         });
-
-    //         device.create_compute_pipeline(&ComputePipelineDescriptor {
-    //             label: Some("Dense Layer Gradient Descent Compute Pipeline"),
-    //             layout: Some(&pipeline_layout),
-    //             module: &shader,
-    //             entry_point: Some("dense_layer_gradient_descent_main"),
-    //             compilation_options: PipelineCompilationOptions::default(),
-    //             cache: None,
-    //         })
-    //     };
-
-    //     self.gradient_descent_bind_group_layout = Some(gradient_descent_bind_group_layout);
-    //     self.gradient_descent_bind_group = Some(gradient_descent_bind_group);
-    //     self.gradient_descent_pipeline = Some(gradient_descent_pipeline);
-    // }
-
-    // Performs the gradient descent pass after the buffers have been linked
-    // and back propogation has been performed
-    //
-    // # Arguments
-    //
-    // * `device` - reference to the wgpu device for creating the command encoder
-    // * `queue` - reference to the wgpu queue to send command to the gpu
-    // pub fn gradient_descent(&self, device: &Device, queue: &Queue) {
-    //     let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-    //         label: Some("Dense Layer Gradient Descent Command Encoder"),
-    //     });
-
-    //     // Run the gradient descent pass
-    //     {
-    //         let (dispatch_width, dispatch_height) = compute_2d_workgroup_size(
-    //             (self.num_inputs as u32, self.num_nodes as u32),
-    //             (D2_WORK_GROUP_SIZE, D2_WORK_GROUP_SIZE),
-    //         );
-
-    //         // Begin the compute pass
-    //         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-    //             label: Some("Dense Layer Gradient Descent Compute Pass"),
-    //             timestamp_writes: None,
-    //         });
-
-    //         // Set the pipeline
-    //         compute_pass.set_pipeline(self.gradient_descent_pipeline.as_ref().unwrap());
-
-    //         // Set the bind groups
-    //         compute_pass.set_bind_group(0, self.gradient_descent_bind_group.as_ref().unwrap(), &[]);
-
-    //         // Dispatch the work groups
-    //         compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
-    //     }
-
-    //     encoder.insert_debug_marker("Sync Point: Dense Layer Gradient Descent Pipeline Finished");
-    //     device.poll(Maintain::Wait);
-
-    //     queue.submit(Some(encoder.finish()));
-    // }
 }
 
 impl FeedForwardLayerConnection for DenseLayer {
@@ -1218,7 +910,7 @@ impl FeedForwardLayerConnection for DenseLayer {
 }
 
 impl BackPropogationLayerConnection for DenseLayer {
-    fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
+    fn get_ceoff_back_prop_buffer(&self) -> Rc<Buffer> {
         self.gradient_back_prop_buffer.clone()
     }
 

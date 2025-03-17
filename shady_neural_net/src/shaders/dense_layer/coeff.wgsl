@@ -43,10 +43,15 @@ var<storage, read_write> gradient_coefficient_intermediary: array<f32>;
 
 // Buffer containing the gradient information from the next layer
 @group(1) @binding(6)
-var<storage, read> gradient_coefficient: array<f32>;
+var<storage, read> next_layers_gradient_coefficient: array<f32>;
 
+// This is the gradient coefficient to use for back propogation in this layer
 @group(1) @binding(7)
-var<storage, read_write> gradient_coefficient_output: array<f32>;
+var<storage, read_write> gradient_coefficient: array<f32>;
+
+// This is the gradient coefficient multiplied by the weights 
+@group(1) @binding(8)
+var<storage, read_write> gradient_back_prop: array<f32>;
 
 // Here are the gradients of the activation functions
 
@@ -152,14 +157,35 @@ fn dense_layer_coefficient_main(
 
     workgroupBarrier();
     
-    //         \/ this is the current layers outputs
+    //         \/ this is the gradient back prop from the next layer
     // [ 1 ] [ a ] 
-    // [ 2 ] [ b ]
+    // [ 2 ] [ b ] 
     // [ 3 ] [ c ] 
-    // [ 4 ] [ d ]
+    // [ 4 ] [ d ] 
     //   /\ this is the current activation function derivative input
     if (row < n) {
-        gradient_coefficient_output[row] = gradient_coefficient_intermediary[row] * gradient_coefficient[row];
+        gradient_coefficient[row] = gradient_coefficient_intermediary[row] * next_layers_gradient_coefficient[row];
+    }
+
+
+    // HACK This is a kinda sketchy way to do this
+    if (row < m) {
+        //            [ 1 2 3 4 5 ]
+        //            [ a b c d e ]
+        //            [ a b c d e ] <- this is the weights matrix
+        //            [ a b c d e ]
+        // [ x y z w ] <- this is the current coefficient
+        var sum: f32 = 0.0;
+        for (var k: u32 = 0; k < n; k++) {
+            let index = row * m + k;
+            sum += weights[index] * gradient_coefficient[k];
+        }
+
+        // This is the computation of the current coefficient multiplied
+        // With the weight matrix as the first step in passing the
+        // gradient coefficient back pipeline
+        // This is dJ/do_l
+        gradient_back_prop[row] = sum;
     }
 
     workgroupBarrier();

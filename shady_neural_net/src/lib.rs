@@ -144,6 +144,7 @@ impl NeuralNet {
             &connecting_buffer,
             num_nodes,
             activation_function,
+            &self.learning_rate,
             &self.device,
         );
 
@@ -152,7 +153,7 @@ impl NeuralNet {
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_layer.get_gradient_coefficient_buffer(),
+                grad_coeff_back_prop_buffer: new_layer.get_ceoff_back_prop_buffer(),
                 weights_buffer: new_layer.get_weights_buffer(),
                 dimensions_buffer: new_layer.get_dimensions_buffer(),
             },
@@ -177,15 +178,19 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let new_layer =
-            DenseLayer::from_descriptor(dense_layer_descriptor, &connecting_buffer, &self.device);
+        let new_layer = DenseLayer::from_descriptor(
+            dense_layer_descriptor,
+            &connecting_buffer,
+            &self.learning_rate,
+            &self.device,
+        );
 
         // new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_layer.get_gradient_coefficient_buffer(),
+                grad_coeff_back_prop_buffer: new_layer.get_ceoff_back_prop_buffer(),
                 weights_buffer: new_layer.get_weights_buffer(),
                 dimensions_buffer: new_layer.get_dimensions_buffer(),
             },
@@ -206,14 +211,19 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
+        let new_output_layer = OutputLayer::new(
+            &connecting_buffer,
+            num_outputs,
+            &self.learning_rate,
+            &self.device,
+        );
 
         // new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_output_layer.get_gradient_coefficient_buffer(),
+                grad_coeff_back_prop_buffer: new_output_layer.get_ceoff_back_prop_buffer(),
                 weights_buffer: new_output_layer.get_weights_buffer(),
                 dimensions_buffer: new_output_layer.get_dimensions_buffer(),
             },
@@ -234,15 +244,19 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_output_layer =
-            OutputLayer::from_descriptor(output_layer_descriptor, &connecting_buffer, &self.device);
+        let new_output_layer = OutputLayer::from_descriptor(
+            output_layer_descriptor,
+            &connecting_buffer,
+            &self.learning_rate,
+            &self.device,
+        );
 
         // new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_output_layer.get_gradient_coefficient_buffer(),
+                grad_coeff_back_prop_buffer: new_output_layer.get_ceoff_back_prop_buffer(),
                 weights_buffer: new_output_layer.get_weights_buffer(),
                 dimensions_buffer: new_output_layer.get_dimensions_buffer(),
             },
@@ -323,7 +337,7 @@ impl NeuralNet {
             if let NeuralNetLayer::Output(output_layer) = layer {
                 output_layer.back_propogate(
                     Regularization {
-                        function: RegularizationFunction::ElasticNetRegression,
+                        function: RegularizationFunction::Lasso,
                         hyper_parameter_1: 1.0,
                         hyper_parameter_2: 1.0,
                     },
@@ -337,7 +351,7 @@ impl NeuralNet {
             if let NeuralNetLayer::Dense(dense_layer) = layer {
                 dense_layer.back_propogate(
                     Regularization {
-                        function: RegularizationFunction::ElasticNetRegression,
+                        function: RegularizationFunction::Lasso,
                         hyper_parameter_1: 1.0,
                         hyper_parameter_2: 1.0,
                     },
@@ -347,20 +361,6 @@ impl NeuralNet {
             }
         }
     }
-
-    // pub fn gradient_decent(&self) {
-    //     for layer in self.hidden_layers.iter() {
-    //         if let NeuralNetLayer::Dense(dense_layer) = layer {
-    //             dense_layer.gradient_descent(&self.device, &self.queue);
-    //         }
-    //     }
-
-    //     if let Some(layer) = self.output_layer.as_ref() {
-    //         if let NeuralNetLayer::Output(output_layer) = layer {
-    //             output_layer.gradient_descent(&self.device, &self.queue);
-    //         }
-    //     }
-    // }
 
     pub fn save_model(&self) -> Result<NeuralNetDesciriptor, Box<dyn Error>> {
         let input_layer_descriptor: InputLayerDescriptor = self

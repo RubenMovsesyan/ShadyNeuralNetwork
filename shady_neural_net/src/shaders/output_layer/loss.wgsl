@@ -14,14 +14,15 @@ var<storage, read> expected_values_buffer: array<f32>;
 @group(0) @binding(3)
 var<storage, read_write> loss_function_buffer: array<f32>;
 
-
-// TEMP
+// This is the gradient coefficient to use for back propogation in this layer
 @group(0) @binding(4)
 var<storage, read_write> gradient_coefficient: array<f32>;
 
+// This is the gradient coefficient multiplied by the weights to be sent back to the next layer
 @group(0) @binding(5)
 var<storage, read_write> gradient_back_prop: array<f32>;
 
+// This is the current layers weights to compute the back propogation gradient coefficent
 @group(0) @binding(6)
 var<storage, read> weights: array<f32>;
 
@@ -63,7 +64,9 @@ fn output_layer_loss_main(
 
         loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
 
-        // TEMP
+        // This is the derivative of the loss function
+        // This is the first level of the gradient coefficient
+        // dJ/do_N
         gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
     }
 
@@ -81,6 +84,10 @@ fn output_layer_loss_main(
             sum += weights[index] * gradient_coefficient[k];
         }
 
+        // This is the first step of sending the gradient coefficient
+        // to the previous layer. Since It is easier to multiply the
+        // coefficient with the weight matrix here we do it here
+        // this is dJ/do_N * W^(N)
         gradient_back_prop[row] = sum;
     } 
 
