@@ -140,14 +140,14 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_layer = DenseLayer::new(
+        let new_layer = DenseLayer::new(
             &connecting_buffer,
             num_nodes,
             activation_function,
             &self.device,
         );
 
-        new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        // new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
@@ -177,10 +177,10 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_layer =
+        let new_layer =
             DenseLayer::from_descriptor(dense_layer_descriptor, &connecting_buffer, &self.device);
 
-        new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        // new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,

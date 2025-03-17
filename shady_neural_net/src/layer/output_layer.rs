@@ -42,6 +42,7 @@ fn create_bind_groups(
     regularization_output_buffer: &Buffer,
     gradient_buffer: &Buffer,
     gradient_coefficient_buffer: &Buffer,
+    gradient_back_prop_buffer: &Buffer,
     loss_function_buffer: &Buffer,
     expected_values_buffer: &Buffer,
     learning_rate_buffer: &Buffer,
@@ -79,7 +80,13 @@ fn create_bind_groups(
             4,
             gradient_coefficient_buffer,
             Bbt::Storage { read_only: false }
-        )
+        ),
+        (
+            5,
+            gradient_back_prop_buffer,
+            Bbt::Storage { read_only: false }
+        ),
+        (6, weights_buffer, Bbt::Storage { read_only: true })
     );
 
     let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
@@ -136,6 +143,7 @@ fn create_buffers(
     Buffer,
     Buffer,
     Buffer,
+    Rc<Buffer>,
     Rc<Buffer>,
     Rc<Buffer>,
 ) {
@@ -228,6 +236,13 @@ fn create_buffers(
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
     });
 
+    let gradient_back_prop_buffer = Rc::new(device.create_buffer(&BufferDescriptor {
+        label: Some("Output Layer Gradient Back Prop Buffer"),
+        mapped_at_creation: false,
+        size: feed_forward_input.num_inputs * std::mem::size_of::<f32>() as u64,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+    }));
+
     (
         intermediary_buffer,
         output_buffer,
@@ -239,6 +254,7 @@ fn create_buffers(
         loss_function_buffer,
         expected_values_buffer,
         learning_rate_buffer,
+        gradient_back_prop_buffer,
         dimensions_buffer,
         gradient_coefficient_buffer,
     )
@@ -361,6 +377,7 @@ pub struct OutputLayer {
     regularization_output_buffer: Buffer,
     gradient_buffer: Buffer,
     gradient_coefficient_buffer: Rc<Buffer>,
+    gradient_back_prop_buffer: Rc<Buffer>,
 
     // Bind group information
     input_buffer: Rc<Buffer>,
@@ -424,6 +441,7 @@ impl OutputLayer {
             loss_function_buffer,
             expected_values_buffer,
             learning_rate_buffer,
+            gradient_back_prop_buffer,
             dimensions_buffer,
             gradient_coefficient_buffer,
         ) = create_buffers(device, feed_forward_input, num_outputs);
@@ -469,6 +487,7 @@ impl OutputLayer {
             &regularization_output_buffer,
             &gradient_buffer,
             &gradient_coefficient_buffer,
+            &gradient_back_prop_buffer,
             &loss_function_buffer,
             &expected_values_buffer,
             &learning_rate_buffer,
@@ -505,6 +524,7 @@ impl OutputLayer {
             regularization_output_buffer,
             gradient_buffer,
             gradient_coefficient_buffer,
+            gradient_back_prop_buffer,
             // -------------------------------
             input_buffer: feed_forward_input.buffer.clone(),
             input_bind_group_layout,
@@ -528,7 +548,6 @@ impl OutputLayer {
             feed_forward_pipeline,
             loss_function_pipeline,
             back_propogation_pipeline,
-            // gradient_descent_pipeline: None,
         }
     }
 
@@ -561,6 +580,7 @@ impl OutputLayer {
             loss_function_buffer,
             expected_values_buffer,
             learning_rate_buffer,
+            gradient_back_prop_buffer,
             dimensions_buffer,
             gradient_coefficient_buffer,
         ) = create_buffers(
@@ -602,6 +622,7 @@ impl OutputLayer {
             &regularization_output_buffer,
             &gradient_buffer,
             &gradient_coefficient_buffer,
+            &gradient_back_prop_buffer,
             &learning_rate_buffer,
             &loss_function_buffer,
             &expected_values_buffer,
@@ -637,6 +658,7 @@ impl OutputLayer {
             regularization_output_buffer,
             gradient_buffer,
             gradient_coefficient_buffer,
+            gradient_back_prop_buffer,
             // -------------------------------
             input_buffer: feed_forward_input.buffer.clone(),
             input_bind_group_layout,
@@ -829,7 +851,7 @@ impl OutputLayer {
 
 impl BackPropogationLayerConnection for OutputLayer {
     fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer> {
-        self.gradient_coefficient_buffer.clone()
+        self.gradient_back_prop_buffer.clone()
     }
 
     fn get_weights_buffer(&self) -> Rc<Buffer> {
