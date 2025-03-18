@@ -55,8 +55,8 @@ fn calculate_gradient(index: u32, row: u32, col: u32) -> f32 {
     // [ 1 ]          
     // [ a ]            This is the gradient gradient coefficient
     // [ a ]
-    let dJdo = gradient_coefficient[col];
-    let h = input_buffer[row];
+    let dJdo = gradient_coefficient[row];
+    let h = input_buffer[col];
     let regularization = regularization_output[index];
 
     return dJdo * h + regularization;
@@ -130,11 +130,8 @@ fn output_layer_back_propogate_main(
             default: {}
         }
 
-        // gradient[index] = calculate_gradient(index, row, col);
-        // gradient[index] = f32(index);
+        gradient[index] = calculate_gradient(index, row, col);
     }
-
-    gradient[index] = f32(index);
 
     workgroupBarrier();
 
@@ -145,7 +142,7 @@ fn output_layer_back_propogate_main(
 
     // Perform gradient descent on every weight in the matrix
     if (row < num_outputs && col < num_inputs) {
-        weights[index] = weights[index] - (learning_rate * gradient[index]);
+        weights[index] = weights[index] + (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();

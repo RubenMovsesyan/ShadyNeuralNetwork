@@ -56,8 +56,8 @@ fn calculate_gradient(index: u32, row: u32, col: u32) -> f32 {
     // [ a ]
     // [ a ] <- this is the gradient coefficient
     // [ a ]
-    let dJdo = gradient_coefficient[col];
-    let h = input_buffer[row];
+    let dJdo = gradient_coefficient[row];
+    let h = input_buffer[col];
 
     let regularization = regularization_output[index];
     return dJdo * h + regularization;
@@ -69,15 +69,15 @@ fn dense_layer_back_propogation_main(
 ) {
     let row = global_id.x;
     let col = global_id.y;
-    // Num Inputs (size of the input buffer)
-    let m = dims.x;
     // Num outputs
-    let n = dims.y;
+    let num_outputs = dims.x;
+    // Num Inputs (size of the input buffer)
+    let num_inputs = dims.y;
 
     // The index of the weights buffer
-    let index = row * m + col;
+    let index = row * num_inputs + col;
 
-    if (row < m && col < n) {
+    if (row < num_outputs && col < num_inputs) {
         let weight = weights[index];
         let lambda_1 = regularization_info.hyper_parameter_1;
         let lambda_2 = regularization_info.hyper_parameter_2;
@@ -127,8 +127,8 @@ fn dense_layer_back_propogation_main(
 
     workgroupBarrier();
 
-    if (row < m && col < n) {
-        weights[index] = weights[index] - (learning_rate * gradient[index]);
+    if (row < num_outputs && col < num_inputs) {
+        weights[index] = weights[index] + (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();

@@ -116,15 +116,15 @@ fn dense_layer_feed_forward_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
-    // Num Inputs
-    let m = dims.x;
     // Num Nodes
-    let n = dims.y;
+    let num_outputs = dims.x;
+    // Num Inputs
+    let num_inputs = dims.y;
 
-    if (row < n) {
+    if (row < num_inputs) {
         // Matrix multiplication of the weights matrix to the input buffer
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < m; k++) {
+        for (var k: u32 = 0; k < num_inputs; k++) {
             //          [x] 
             //          [y] 
             //          [z] 
@@ -132,7 +132,7 @@ fn dense_layer_feed_forward_main(
             // [1 2 3 4]
             // [a b c d]
             // [a b c d]
-            let index = row * m + k;
+            let index = row * num_inputs + k;
 
             sum += weights_buffer[index] * input_buffer[k];
         }

@@ -122,13 +122,13 @@ fn dense_layer_coefficient_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
+    // Num nodes
+    let num_outputs = dims.x;
     // Num inputs
-    let m = dims.x;
-    // Num outputs
-    let n = dims.y;
+    let num_inputs = dims.y;
 
     // Compute the derivative of the activation function
-    if (row < n) {
+    if (row < num_outputs) {
         switch activation_function.function_type {
             case STEP: {
                 gradient_coefficient_intermediary[row] = step_gradient(intermediary[row]);
@@ -163,21 +163,21 @@ fn dense_layer_coefficient_main(
     // [ 3 ] [ c ] 
     // [ 4 ] [ d ] 
     //   /\ this is the current activation function derivative input
-    if (row < n) {
+    if (row < num_outputs) {
         gradient_coefficient[row] = gradient_coefficient_intermediary[row] * next_layers_gradient_coefficient[row];
     }
 
 
     // HACK This is a kinda sketchy way to do this
-    if (row < m) {
+    if (row < num_inputs) {
         //            [ 1 2 3 4 5 ]
         //            [ a b c d e ]
         //            [ a b c d e ] <- this is the weights matrix
         //            [ a b c d e ]
         // [ x y z w ] <- this is the current coefficient
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < n; k++) {
-            let index = row * m + k;
+        for (var k: u32 = 0; k < num_outputs; k++) {
+            let index = row * num_outputs + k;
             sum += weights[index] * gradient_coefficient[k];
         }
 

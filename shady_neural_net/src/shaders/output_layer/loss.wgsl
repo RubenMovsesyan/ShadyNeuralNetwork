@@ -58,7 +58,7 @@ fn output_layer_loss_main(
     // Num Inputs
     let num_inputs = dims.y;
 
-    if (row < num_inputs) {
+    if (row < num_outputs) {
         let predicted = output[row];
         let expected = expected_values_buffer[row];
 
@@ -73,13 +73,13 @@ fn output_layer_loss_main(
     workgroupBarrier();
 
     // HACK This is a kinda sketchy way to do this
-    if (row < num_outputs) {
+    if (row < num_inputs) {
         //          [ 1 2 3 4 ]
         //          [ a b c d ] <- this is the weights matrix
         //          [ a b c d ]
         // [ x y z ] <- this is the current coefficient
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < num_inputs; k++) {
+        for (var k: u32 = 0; k < num_outputs; k++) {
             let index = row * num_outputs + k;
             sum += weights[index] * gradient_coefficient[k];
         }

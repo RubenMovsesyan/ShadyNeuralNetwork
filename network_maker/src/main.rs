@@ -53,20 +53,14 @@ fn train() {
             break;
         }
 
-        // println!("\rCost: {}", cost);
-        // print!("Continue: ");
         _ = stdout().flush();
-
-        _ = neural_net.save_model_to_file("test_files/nn_test.json");
-
-        // let mut buffer = String::new();
-        // _ = stdin().read_line(&mut buffer);
 
         neural_net.set_learning_rate(cost * 0.01);
 
         print_progress(i, passes);
         print!(" Cost: {cost} ");
     }
+    _ = neural_net.save_model_to_file("test_files/nn_test.json");
 
     println!();
     println!("Done!");

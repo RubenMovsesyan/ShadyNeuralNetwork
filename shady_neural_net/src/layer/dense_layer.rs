@@ -184,8 +184,8 @@ fn create_buffers(
 ) {
     let dimensions_buffer = {
         let mut dimensions = Vec::new();
-        dimensions.push(input_connecting_bind_group.num_inputs as u32);
         dimensions.push(num_nodes as u32);
+        dimensions.push(input_connecting_bind_group.num_inputs as u32);
 
         Rc::new(device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Dense Layer Dimensions Buffer"),
@@ -995,7 +995,8 @@ impl BackPropogationLayer for DenseLayer {
 
         // Run the gradient coefficient pipeline
         {
-            let dispatch_size = compute_workgroup_size(self.num_nodes as u32, WORK_GROUP_SIZE);
+            let dispatch_size =
+                compute_workgroup_size(self.num_nodes.max(self.num_inputs) as u32, WORK_GROUP_SIZE);
 
             // Begin the compute pass
             let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {

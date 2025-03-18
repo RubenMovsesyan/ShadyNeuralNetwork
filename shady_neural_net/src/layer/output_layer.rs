@@ -897,7 +897,10 @@ impl BackPropogationLayer for OutputLayer {
 
         // Run the loss function pipeline
         {
-            let dispatch_size = compute_workgroup_size(self.num_outputs as u32, WORK_GROUP_SIZE);
+            let dispatch_size = compute_workgroup_size(
+                self.num_outputs.max(self.num_inputs) as u32,
+                WORK_GROUP_SIZE,
+            );
 
             // Begin the compute pass
             let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {

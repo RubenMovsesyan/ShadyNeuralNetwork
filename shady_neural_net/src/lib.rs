@@ -357,7 +357,7 @@ impl NeuralNet {
                 output_layer.back_propogate(
                     Regularization {
                         function: RegularizationFunction::Lasso,
-                        hyper_parameter_1: 1.0,
+                        hyper_parameter_1: 2.0,
                         hyper_parameter_2: 1.0,
                     },
                     &self.device,
@@ -371,7 +371,7 @@ impl NeuralNet {
                 dense_layer.back_propogate(
                     Regularization {
                         function: RegularizationFunction::Lasso,
-                        hyper_parameter_1: 1.0,
+                        hyper_parameter_1: 2.0,
                         hyper_parameter_2: 1.0,
                     },
                     &self.device,
