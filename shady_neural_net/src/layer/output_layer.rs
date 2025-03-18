@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::create_buffer_bind_group;
 use crate::layer::compute_2d_workgroup_size;
+use crate::layer_structs::loss::*;
 use crate::layer_structs::regularization::*;
 use crate::utils::{get_buffer, print_buffer, read_buffer};
 
@@ -44,6 +45,7 @@ fn create_bind_groups(
     gradient_coefficient_buffer: &Buffer,
     gradient_back_prop_buffer: &Buffer,
     loss_function_buffer: &Buffer,
+    loss_function_info_buffer: &Buffer,
     expected_values_buffer: &Buffer,
     learning_rate_buffer: &Buffer,
 ) -> (
@@ -86,7 +88,8 @@ fn create_bind_groups(
             gradient_back_prop_buffer,
             Bbt::Storage { read_only: false }
         ),
-        (6, weights_buffer, Bbt::Storage { read_only: true })
+        (6, weights_buffer, Bbt::Storage { read_only: true }),
+        (7, loss_function_info_buffer, Bbt::Uniform)
     );
 
     let (back_propogation_bind_group_layout, back_propogation_bind_group) = create_buffer_bind_group!(
@@ -133,6 +136,7 @@ fn create_buffers(
     feed_forward_input: &FeedForwardConnection,
     num_outputs: u64,
 ) -> (
+    Buffer,
     Buffer,
     Buffer,
     Buffer,
@@ -221,6 +225,13 @@ fn create_buffers(
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
     });
 
+    let loss_function_info_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("Output Layer Loss Function information Buffer"),
+        mapped_at_creation: false,
+        size: std::mem::size_of::<LossRepr>() as u64,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+    });
+
     let expected_values_buffer = device.create_buffer(&BufferDescriptor {
         label: Some("Output Layer Expected Values Buffer"),
         mapped_at_creation: false,
@@ -244,6 +255,7 @@ fn create_buffers(
         regularization_output_buffer,
         gradient_buffer,
         loss_function_buffer,
+        loss_function_info_buffer,
         expected_values_buffer,
         gradient_back_prop_buffer,
         dimensions_buffer,
@@ -344,7 +356,7 @@ fn create_pipelines(
     )
 }
 
-#[allow(dead_code)]
+// #[allow(dead_code)]
 #[derive(Debug)]
 pub struct OutputLayer {
     pub num_inputs: u64,
@@ -354,46 +366,47 @@ pub struct OutputLayer {
     dimensions_buffer: Rc<Buffer>,
     weights_buffer: Rc<Buffer>,
     bias_buffer: Buffer,
-    intermediary_buffer: Buffer,
+    // intermediary_buffer: Buffer,
     output_buffer: Buffer,
 
     // Cost function buffer
     loss_function_buffer: Buffer,
+    loss_function_info_buffer: Buffer,
     expected_values_buffer: Buffer,
 
     // buffers used in back propogation
     l_1_norm_buffer: Buffer,
     frobenius_norm_buffer: Buffer,
     regularization_info_buffer: Buffer,
-    regularization_output_buffer: Buffer,
+    // regularization_output_buffer: Buffer,
     gradient_buffer: Buffer,
-    gradient_coefficient_buffer: Rc<Buffer>,
+    // gradient_coefficient_buffer: Rc<Buffer>,
     gradient_back_prop_buffer: Rc<Buffer>,
 
     // Bind group information
-    input_buffer: Rc<Buffer>,
-    input_bind_group_layout: BindGroupLayout,
+    // input_buffer: Rc<Buffer>,
+    // input_bind_group_layout: BindGroupLayout,
     input_bind_group: BindGroup,
 
     // Main bind group information
-    feed_forward_bind_group_layout: BindGroupLayout,
+    // feed_forward_bind_group_layout: BindGroupLayout,
     feed_forward_bind_group: BindGroup,
 
     // Cost function bind group information
-    loss_function_bind_group_layout: BindGroupLayout,
+    // loss_function_bind_group_layout: BindGroupLayout,
     loss_function_bind_group: BindGroup,
 
     // Back Propogation bind groups
-    back_propogation_bind_group_layout: BindGroupLayout,
+    // back_propogation_bind_group_layout: BindGroupLayout,
     back_propogation_bind_group: BindGroup,
 
     // Learning Rate bind groups
-    learning_rate_bind_group_layout: BindGroupLayout,
+    // learning_rate_bind_group_layout: BindGroupLayout,
     learning_rate_bind_group: BindGroup,
 
     // Gradient Descent Bind groups
-    gradient_descent_bind_group_layout: Option<BindGroupLayout>,
-    gradient_descent_bind_group: Option<BindGroup>,
+    // gradient_descent_bind_group_layout: Option<BindGroupLayout>,
+    // gradient_descent_bind_group: Option<BindGroup>,
 
     // GPU Pipeline Information
     feed_forward_pipeline: ComputePipeline,
@@ -431,6 +444,7 @@ impl OutputLayer {
             regularization_output_buffer,
             gradient_buffer,
             loss_function_buffer,
+            loss_function_info_buffer,
             expected_values_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
@@ -480,6 +494,7 @@ impl OutputLayer {
             &gradient_coefficient_buffer,
             &gradient_back_prop_buffer,
             &loss_function_buffer,
+            &loss_function_info_buffer,
             &expected_values_buffer,
             learning_rate_buffer,
         );
@@ -503,38 +518,39 @@ impl OutputLayer {
             dimensions_buffer,
             weights_buffer,
             bias_buffer,
-            intermediary_buffer,
+            // intermediary_buffer,
             output_buffer,
             // -------------------------------
             loss_function_buffer,
+            loss_function_info_buffer,
             expected_values_buffer,
             // -------------------------------
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            regularization_output_buffer,
+            // regularization_output_buffer,
             gradient_buffer,
-            gradient_coefficient_buffer,
+            // gradient_coefficient_buffer,
             gradient_back_prop_buffer,
             // -------------------------------
-            input_buffer: feed_forward_input.buffer.clone(),
-            input_bind_group_layout,
+            // input_buffer: feed_forward_input.buffer.clone(),
+            // input_bind_group_layout,
             input_bind_group,
             // -------------------------------
-            feed_forward_bind_group_layout,
+            // feed_forward_bind_group_layout,
             feed_forward_bind_group,
             // -------------------------------
-            loss_function_bind_group_layout,
+            // loss_function_bind_group_layout,
             loss_function_bind_group,
             // -------------------------------
-            learning_rate_bind_group_layout,
+            // learning_rate_bind_group_layout,
             learning_rate_bind_group,
             // -------------------------------
-            back_propogation_bind_group_layout,
+            // back_propogation_bind_group_layout,
             back_propogation_bind_group,
             // -------------------------------
-            gradient_descent_bind_group_layout: None,
-            gradient_descent_bind_group: None,
+            // gradient_descent_bind_group_layout: None,
+            // gradient_descent_bind_group: None,
             // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
@@ -570,6 +586,7 @@ impl OutputLayer {
             regularization_output_buffer,
             gradient_buffer,
             loss_function_buffer,
+            loss_function_info_buffer,
             expected_values_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
@@ -616,6 +633,7 @@ impl OutputLayer {
             &gradient_back_prop_buffer,
             learning_rate_buffer,
             &loss_function_buffer,
+            &loss_function_info_buffer,
             &expected_values_buffer,
         );
 
@@ -637,38 +655,39 @@ impl OutputLayer {
             dimensions_buffer,
             weights_buffer,
             bias_buffer,
-            intermediary_buffer,
+            // intermediary_buffer,
             output_buffer,
             // -------------------------------
             loss_function_buffer,
+            loss_function_info_buffer,
             expected_values_buffer,
             // -------------------------------
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            regularization_output_buffer,
+            // regularization_output_buffer,
             gradient_buffer,
-            gradient_coefficient_buffer,
+            // gradient_coefficient_buffer,
             gradient_back_prop_buffer,
             // -------------------------------
-            input_buffer: feed_forward_input.buffer.clone(),
-            input_bind_group_layout,
+            // input_buffer: feed_forward_input.buffer.clone(),
+            // input_bind_group_layout,
             input_bind_group,
             // -------------------------------
-            feed_forward_bind_group_layout,
+            // feed_forward_bind_group_layout,
             feed_forward_bind_group,
             // -------------------------------
-            loss_function_bind_group_layout,
+            // loss_function_bind_group_layout,
             loss_function_bind_group,
             // -------------------------------
-            back_propogation_bind_group_layout,
+            // back_propogation_bind_group_layout,
             back_propogation_bind_group,
             // -------------------------------
-            learning_rate_bind_group_layout,
+            // learning_rate_bind_group_layout,
             learning_rate_bind_group,
             // -------------------------------
-            gradient_descent_bind_group_layout: None,
-            gradient_descent_bind_group: None,
+            // gradient_descent_bind_group_layout: None,
+            // gradient_descent_bind_group: None,
             // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
@@ -817,6 +836,14 @@ impl OutputLayer {
             &self.expected_values_buffer,
             0,
             bytemuck::cast_slice(&expected_values),
+        );
+    }
+
+    pub fn set_loss_function(&self, loss_function: LossFunction, queue: &Queue) {
+        queue.write_buffer(
+            &self.loss_function_info_buffer,
+            0,
+            bytemuck::cast_slice(&[loss_function.as_repr()]),
         );
     }
 
@@ -1009,13 +1036,13 @@ impl BackPropogationLayer for OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        // print_buffer(&predicted_values, device, "Output Layer Predicted Values");
-        // print_buffer(
-        //     &expected_values,
-        //     device,
-        //     "Output Layer Expected Values Function",
-        // );
-        // print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
+        print_buffer(&predicted_values, device, "Output Layer Predicted Values");
+        print_buffer(
+            &expected_values,
+            device,
+            "Output Layer Expected Values Function",
+        );
+        print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
         print_buffer(&gradient, device, "Output Gradient Buffer");
     }
 }

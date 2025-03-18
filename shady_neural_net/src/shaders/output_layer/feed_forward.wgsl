@@ -60,39 +60,40 @@ fn output_layer_feed_forward_main(
 
         // store the sum in the intermediary buffer
         // to then compute the softmax
-        intermediary_buffer[row] = sum;
+        // intermediary_buffer[row] = sum;
+        output_buffer[row] = sum;
     }
 
     workgroupBarrier();
 
     // Compute the softmax of the output
-    if (row < num_outputs) {
-        var max_val: f32 = intermediary_buffer[0];
-        for (var i: u32 = 0; i < num_outputs; i++) {
-            max_val = max(max_val, intermediary_buffer[i]);
-        }
+    // if (row < num_outputs) {
+    //     var max_val: f32 = intermediary_buffer[0];
+    //     for (var i: u32 = 0; i < num_outputs; i++) {
+    //         max_val = max(max_val, intermediary_buffer[i]);
+    //     }
 
-        output_buffer[row] = exp(intermediary_buffer[row] - max_val);
-    }
+    //     output_buffer[row] = exp(intermediary_buffer[row] - max_val);
+    // }
 
-    // Make sure to synchronize the workgroups before overwritting the
-    // output buffer
-    workgroupBarrier();
+    // // Make sure to synchronize the workgroups before overwritting the
+    // // output buffer
+    // workgroupBarrier();
 
-    var exp_sum: f32 = 0.0;
-    if (row < num_outputs) {
-        for (var i: u32 = 0; i < num_outputs; i++) {
-            exp_sum += output_buffer[i];
-        }
-    }
+    // var exp_sum: f32 = 0.0;
+    // if (row < num_outputs) {
+    //     for (var i: u32 = 0; i < num_outputs; i++) {
+    //         exp_sum += output_buffer[i];
+    //     }
+    // }
 
-    // Make sure to synchronize the workgroups before overwritting the
-    // output buffer
-    workgroupBarrier();
+    // // Make sure to synchronize the workgroups before overwritting the
+    // // output buffer
+    // workgroupBarrier();
 
-    if (row < num_outputs) {
-        output_buffer[row] /= exp_sum;
-    }
+    // if (row < num_outputs) {
+    //     output_buffer[row] /= exp_sum;
+    // }
 
-    workgroupBarrier();
+    // workgroupBarrier();
 }

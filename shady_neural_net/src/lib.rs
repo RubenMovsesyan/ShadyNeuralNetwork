@@ -315,23 +315,23 @@ impl NeuralNet {
         // }
 
         // Softmax the input vector
-        {
-            let max_val = expected_values
-                .iter()
-                .max_by(|x, y| x.partial_cmp(y).unwrap())
-                .unwrap()
-                .clone();
+        // {
+        //     let max_val = expected_values
+        //         .iter()
+        //         .max_by(|x, y| x.partial_cmp(y).unwrap())
+        //         .unwrap()
+        //         .clone();
 
-            expected_values
-                .iter_mut()
-                .for_each(|value| *value = f32::exp(*value - max_val));
+        //     expected_values
+        //         .iter_mut()
+        //         .for_each(|value| *value = f32::exp(*value - max_val));
 
-            let exp_sum = expected_values.iter().sum::<f32>();
+        //     let exp_sum = expected_values.iter().sum::<f32>();
 
-            expected_values
-                .iter_mut()
-                .for_each(|value| *value /= exp_sum);
-        }
+        //     expected_values
+        //         .iter_mut()
+        //         .for_each(|value| *value /= exp_sum);
+        // }
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {

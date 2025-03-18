@@ -4,7 +4,7 @@ use crate::{
     create_buffer_bind_group,
     layer::{D2_WORK_GROUP_SIZE, compute_2d_workgroup_size},
     regularization::RegularizationFunction,
-    utils::{get_buffer, read_buffer},
+    utils::{get_buffer, print_buffer, read_buffer},
 };
 
 use super::{
@@ -1015,6 +1015,13 @@ impl BackPropogationLayer for DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        let gradient = read_buffer(
+            &self.gradient_buffer,
+            self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         encoder.insert_debug_marker("Sync Point: Dense Layer Coefficient Pipeline");
         device.poll(Maintain::Wait);
 
@@ -1046,5 +1053,7 @@ impl BackPropogationLayer for DenseLayer {
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+
+        print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
     }
 }

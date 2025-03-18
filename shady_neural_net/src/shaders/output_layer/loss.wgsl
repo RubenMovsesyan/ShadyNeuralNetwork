@@ -26,6 +26,22 @@ var<storage, read_write> gradient_back_prop: array<f32>;
 @group(0) @binding(6)
 var<storage, read> weights: array<f32>;
 
+// This is the buffer that stores the information for which loss function to use
+@group(0) @binding(7)
+var<uniform> loss_function_info: u32;
+
+// Constants
+const LOG_LOSS: u32 = 0; // Binary Cross Entropy Loss
+const HINGE_LOSS: u32 = 1;
+const MSE: u32 = 2; // Mean Squared Error, Quadratic Loss, L2 Loss
+const MAE: u32 = 3; // Mean Absolute Error,
+const HUBER: u32 = 4; // Smooth mean absolute error
+const LOG_COSH: u32 = 5;
+const QUANTILE: u32 = 6;
+
+// Helper functions to compute the loss and the gradient
+
+// Log Loss / Binary Cross Entropy Loss
 // -((o_n * ln(y_n) + ((1 - y_n) * ln(1 - o_n)))
 fn binary_cross_entropy_loss_gradient(predicted: f32, expected: f32) -> f32 {
     let top = predicted - expected;
@@ -47,6 +63,36 @@ fn binary_cross_entropy_loss(predicted: f32, expected: f32) -> f32 {
     return -1.0 * (part_1 + part_2);
 }
 
+// Hinge Loss
+fn hinge_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+
+fn hinge_loss(predicted: f32, expected: f32) -> f32 {}
+
+// Mean Squared Error Loss
+fn mean_squared_error_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+
+fn mean_squared_error_loss(predicted: f32, expected: f32) -> f32 {}
+
+// Mean Absolute Error Loss
+fn mean_absolute_error_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+
+fn mean_absolute_error_loss(predicted: f32, expected: f32) -> f32 {}
+
+// Huber Loss
+fn huber_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+
+fn huber_loss(predicted: f32, expected: f32) -> f32 {}
+
+// Log Cosh Loss
+fn log_cosh_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+
+fn log_cosh_loss(predicted: f32, expected: f32) -> f32 {}
+
+// Quantile Loss
+fn quantile_loss_gradinent(predicted: f32, expected: f32) -> f32 {}
+
+fn quantile_loss(predicted: f32, expexted: f32) -> f32 {}
+
 @compute @workgroup_size(256)
 fn output_layer_loss_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
@@ -61,13 +107,42 @@ fn output_layer_loss_main(
     if (row < num_outputs) {
         let predicted = output[row];
         let expected = expected_values_buffer[row];
-
-        loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
-
         // This is the derivative of the loss function
         // This is the first level of the gradient coefficient
         // dJ/do_N
-        gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
+
+        switch loss_function_info {
+            case LOG_LOSS: {
+                loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
+                gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
+            }
+            case HINGE_LOSS: {
+                loss_function_buffer[row] = hinge_loss(predicted, expected);
+                gradient_coefficient[row] = hinge_loss_gradient(predicted, expected);
+            }
+            case MSE: {
+                loss_function_buffer[row] = mean_squared_error_loss(predicted, expected);
+                gradient_coefficient[row] = mean_squared_error_loss_gradient(predicted, expected);
+            }
+            case MAE: {
+                loss_function_buffer[row] = mean_absolute_error_loss(predicted, expected);
+                gradient_coefficient[row] = mean_absolute_error_loss_gradient(predicted, expected);
+            }
+            case HUBER: {
+                loss_function_buffer[row] = huber_loss(predicted, expected);
+                gradient_coefficient[row] = huber_loss_gradient(predicted, expected);
+            }
+            case LOG_COSH: {
+                loss_function_buffer[row] = log_cose_loss(predicted, expected);
+                gradient_coefficient[row] = log_cose_loss_gradient(predicted, expected);
+            }
+            case QUANTILE: {
+                loss_function_buffer[row] = quantile_loss(predicted, expected);
+                gradient_coefficient[row] = quantile_loss_gradient(predicted, expected);
+            }
+            default: {}
+        }
+        
     }
 
     workgroupBarrier();

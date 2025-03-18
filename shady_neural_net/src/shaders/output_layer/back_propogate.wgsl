@@ -142,7 +142,7 @@ fn output_layer_back_propogate_main(
 
     // Perform gradient descent on every weight in the matrix
     if (row < num_outputs && col < num_inputs) {
-        weights[index] = weights[index] + (learning_rate * gradient[index]);
+        weights[index] = weights[index] - (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();
