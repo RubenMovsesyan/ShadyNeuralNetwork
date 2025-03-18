@@ -33,16 +33,16 @@ fn output_layer_feed_forward_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
-    // Num Inputs
-    let m = dims.x;
     // Num Outputs
-    let n = dims.y;
+    let num_outputs = dims.x;
+    // Num Inputs
+    let num_inputs = dims.y;
 
-    if (row < n) {
+    if (row < num_outputs) {
         // Compute the matrix multiplication with the
         // input vector
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < m; k++) {
+        for (var k: u32 = 0; k < num_inputs; k++) {
             //          [x] 
             //          [y] 
             //          [z] 
@@ -50,7 +50,7 @@ fn output_layer_feed_forward_main(
             // [1 2 3 4]
             // [a b c d]
             // [a b c d]
-            let index = row * m + k;
+            let index = row * num_inputs + k;
 
             sum += weights_buffer[index] * input_buffer[k];
         }
@@ -66,9 +66,9 @@ fn output_layer_feed_forward_main(
     workgroupBarrier();
 
     // Compute the softmax of the output
-    if (row < n) {
+    if (row < num_outputs) {
         var max_val: f32 = intermediary_buffer[0];
-        for (var i: u32 = 0; i < n; i++) {
+        for (var i: u32 = 0; i < num_outputs; i++) {
             max_val = max(max_val, intermediary_buffer[i]);
         }
 
@@ -80,8 +80,8 @@ fn output_layer_feed_forward_main(
     workgroupBarrier();
 
     var exp_sum: f32 = 0.0;
-    if (row < n) {
-        for (var i: u32 = 0; i < n; i++) {
+    if (row < num_outputs) {
+        for (var i: u32 = 0; i < num_outputs; i++) {
             exp_sum += output_buffer[i];
         }
     }
@@ -90,7 +90,7 @@ fn output_layer_feed_forward_main(
     // output buffer
     workgroupBarrier();
 
-    if (row < n) {
+    if (row < num_outputs) {
         output_buffer[row] /= exp_sum;
     }
 

@@ -68,10 +68,10 @@ fn output_layer_back_propogate_main(
 ) {
     let row = global_id.x;
     let col = global_id.y;
-    // Num inputs (size of the input buffer)
-    let m = dims.x;
     // Num outputs (size of the gradient coefficient)
-    let n = dims.y;
+    let num_outputs = dims.x;
+    // Num inputs (size of the input buffer)
+    let num_inputs = dims.y;
 
     // The index of the weights buffer
     //            [ x ]
@@ -81,9 +81,10 @@ fn output_layer_back_propogate_main(
     // [ 1 2 3 4 ]
     // [ a b c d ]
     // [ a b c d ]
-    let index = row * m + col;
+    let index = row * num_inputs + col;
 
-    if (row < m && col < n) {
+    // Getting the regularization term of the back propogation equation
+    if (row < num_outputs && col < num_inputs) {
         let weight = weights[index];
         let lambda_1 = regularization_info.hyper_parameter_1;
         let lambda_2 = regularization_info.hyper_parameter_2;
@@ -129,8 +130,11 @@ fn output_layer_back_propogate_main(
             default: {}
         }
 
-        gradient[index] = calculate_gradient(index, row, col);
+        // gradient[index] = calculate_gradient(index, row, col);
+        // gradient[index] = f32(index);
     }
+
+    gradient[index] = f32(index);
 
     workgroupBarrier();
 
@@ -139,8 +143,9 @@ fn output_layer_back_propogate_main(
         
     // }
 
-    if (row < m && col < n) {
-        weights[index] = weights[index] + (learning_rate * gradient[index]);
+    // Perform gradient descent on every weight in the matrix
+    if (row < num_outputs && col < num_inputs) {
+        weights[index] = weights[index] - (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();

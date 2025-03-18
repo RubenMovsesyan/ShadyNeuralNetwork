@@ -128,7 +128,7 @@ fn dense_layer_back_propogation_main(
     workgroupBarrier();
 
     if (row < m && col < n) {
-        weights[index] = weights[index] + (learning_rate * gradient[index]);
+        weights[index] = weights[index] - (learning_rate * gradient[index]);
     }
 
     workgroupBarrier();

@@ -53,12 +53,12 @@ fn output_layer_loss_main(
 ) {
     // Binary cross entropy loss
     let row = global_id.x;
-    // Num Inputs
-    let m = dims.x;
     // Num outputs
-    let n = dims.y;
+    let num_outputs = dims.x;
+    // Num Inputs
+    let num_inputs = dims.y;
 
-    if (row < n) {
+    if (row < num_inputs) {
         let predicted = output[row];
         let expected = expected_values_buffer[row];
 
@@ -73,14 +73,14 @@ fn output_layer_loss_main(
     workgroupBarrier();
 
     // HACK This is a kinda sketchy way to do this
-    if (row < m) {
+    if (row < num_outputs) {
         //          [ 1 2 3 4 ]
         //          [ a b c d ] <- this is the weights matrix
         //          [ a b c d ]
         // [ x y z ] <- this is the current coefficient
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < n; k++) {
-            let index = row * m + k;
+        for (var k: u32 = 0; k < num_inputs; k++) {
+            let index = row * num_outputs + k;
             sum += weights[index] * gradient_coefficient[k];
         }
 

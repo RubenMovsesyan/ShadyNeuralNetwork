@@ -65,6 +65,7 @@ fn train() {
         neural_net.set_learning_rate(cost * 0.01);
 
         print_progress(i, passes);
+        print!(" Cost: {cost} ");
     }
 
     println!();

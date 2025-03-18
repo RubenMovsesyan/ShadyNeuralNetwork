@@ -148,8 +148,8 @@ fn create_buffers(
 ) {
     let dimensions_buffer = {
         let mut dimensions = Vec::new();
-        dimensions.push(feed_forward_input.num_inputs as u32);
         dimensions.push(num_outputs as u32);
+        dimensions.push(feed_forward_input.num_inputs as u32);
 
         Rc::new(device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Output Layer Dimensions Buffer"),
@@ -997,6 +997,13 @@ impl BackPropogationLayer for OutputLayer {
         encoder.insert_debug_marker("Sync Point: Output Back Prop Pipeline Finished");
         device.poll(Maintain::Wait);
 
+        let gradient = read_buffer(
+            &self.gradient_buffer,
+            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
         queue.submit(Some(encoder.finish()));
 
         // print_buffer(&predicted_values, device, "Output Layer Predicted Values");
@@ -1006,5 +1013,6 @@ impl BackPropogationLayer for OutputLayer {
         //     "Output Layer Expected Values Function",
         // );
         // print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
+        print_buffer(&gradient, device, "Output Gradient Buffer");
     }
 }
