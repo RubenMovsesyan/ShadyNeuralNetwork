@@ -153,7 +153,7 @@ fn output_layer_back_propogate_main(
     workgroupBarrier();
 
     if (row < num_outputs && col < num_inputs) {
-        if (sum > 0.5) { // Tau
+        if (sum > 5.0) { // Tau
             gradient[index] /= sum;
         }
     }

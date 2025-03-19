@@ -171,7 +171,7 @@ impl InputLayer {
     /// is not the same size as the input buffer
     pub fn set_inputs(
         &self,
-        mut inputs: Vec<f32>,
+        inputs: &Vec<f32>,
         device: &Device,
         queue: &Queue,
     ) -> Result<(), InputLengthMismatchError> {
@@ -180,16 +180,16 @@ impl InputLayer {
         }
 
         // Normalize the inputs before sending them through
-        {
-            let avg = inputs.iter().sum::<f32>() / inputs.len() as f32;
-            inputs = inputs.iter_mut().map(|value| *value / avg).collect();
-        }
+        // {
+        //     let avg = inputs.iter().sum::<f32>() / inputs.len() as f32;
+        //     inputs = inputs.iter().map(|value| *value / avg).collect();
+        // }
 
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Input Layer Command Encoder"),
         });
 
-        queue.write_buffer(self.buffer.as_ref(), 0, bytemuck::cast_slice(&inputs));
+        queue.write_buffer(self.buffer.as_ref(), 0, bytemuck::cast_slice(inputs));
 
         // Run the pipeline
         {
