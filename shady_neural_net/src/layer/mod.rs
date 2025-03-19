@@ -52,10 +52,6 @@ pub trait FeedForwardLayerConnection {
 // Trait for layers that have a back propogation connection to the previous layer
 pub trait BackPropogationLayerConnection {
     fn get_ceoff_back_prop_buffer(&self) -> Rc<Buffer>;
-
-    fn get_weights_buffer(&self) -> Rc<Buffer>;
-
-    fn get_dimensions_buffer(&self) -> Rc<Buffer>;
 }
 
 // Trait for feeding data forward
@@ -75,8 +71,6 @@ pub struct FeedForwardConnection {
 
 pub struct BackPropogationConnection {
     pub grad_coeff_back_prop_buffer: Rc<Buffer>,
-    pub weights_buffer: Rc<Buffer>,
-    pub dimensions_buffer: Rc<Buffer>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

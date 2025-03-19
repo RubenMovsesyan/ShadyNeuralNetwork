@@ -155,8 +155,6 @@ impl NeuralNet {
             &self.device,
             BackPropogationConnection {
                 grad_coeff_back_prop_buffer: new_layer.get_ceoff_back_prop_buffer(),
-                weights_buffer: new_layer.get_weights_buffer(),
-                dimensions_buffer: new_layer.get_dimensions_buffer(),
             },
         );
 
@@ -192,8 +190,6 @@ impl NeuralNet {
             &self.device,
             BackPropogationConnection {
                 grad_coeff_back_prop_buffer: new_layer.get_ceoff_back_prop_buffer(),
-                weights_buffer: new_layer.get_weights_buffer(),
-                dimensions_buffer: new_layer.get_dimensions_buffer(),
             },
         );
 
@@ -219,14 +215,10 @@ impl NeuralNet {
             &self.device,
         );
 
-        // new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
-
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
                 grad_coeff_back_prop_buffer: new_output_layer.get_ceoff_back_prop_buffer(),
-                weights_buffer: new_output_layer.get_weights_buffer(),
-                dimensions_buffer: new_output_layer.get_dimensions_buffer(),
             },
         );
 
@@ -252,14 +244,10 @@ impl NeuralNet {
             &self.device,
         );
 
-        // new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
-
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
                 grad_coeff_back_prop_buffer: new_output_layer.get_ceoff_back_prop_buffer(),
-                weights_buffer: new_output_layer.get_weights_buffer(),
-                dimensions_buffer: new_output_layer.get_dimensions_buffer(),
             },
         );
 
@@ -276,7 +264,6 @@ impl NeuralNet {
         );
     }
 
-    // pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<Vec<f32>, Box<dyn Error>> {
     pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<(), Box<dyn Error>> {
         // FIXME fix this
         match self.input_layer.as_ref().unwrap() {
@@ -323,35 +310,7 @@ impl NeuralNet {
         }
     }
 
-    pub fn set_loss(&self, mut expected_values: Vec<f32>) -> Result<(), Box<dyn Error>> {
-        // Normalize the input vector
-        // {
-        //     let avg = expected_values.iter().sum::<f32>() / expected_values.len() as f32;
-        //     expected_values = expected_values
-        //         .iter_mut()
-        //         .map(|value| *value / avg)
-        //         .collect();
-        // }
-
-        // Softmax the input vector
-        // {
-        //     let max_val = expected_values
-        //         .iter()
-        //         .max_by(|x, y| x.partial_cmp(y).unwrap())
-        //         .unwrap()
-        //         .clone();
-
-        //     expected_values
-        //         .iter_mut()
-        //         .for_each(|value| *value = f32::exp(*value - max_val));
-
-        //     let exp_sum = expected_values.iter().sum::<f32>();
-
-        //     expected_values
-        //         .iter_mut()
-        //         .for_each(|value| *value /= exp_sum);
-        // }
-
+    pub fn set_loss(&self, expected_values: Vec<f32>) -> Result<(), Box<dyn Error>> {
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
                 output_layer.set_expected_weights(&expected_values, &self.queue);

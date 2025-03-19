@@ -4,7 +4,7 @@ use crate::{
     create_buffer_bind_group,
     layer::{D2_WORK_GROUP_SIZE, compute_2d_workgroup_size},
     regularization::RegularizationFunction,
-    utils::{get_buffer, print_buffer, read_buffer},
+    utils::{get_buffer, read_buffer},
 };
 
 use super::{
@@ -353,46 +353,28 @@ pub struct DenseLayer {
     l_1_norm_buffer: Buffer,
     frobenius_norm_buffer: Buffer,
     regularization_info_buffer: Buffer,
-    regularization_output_buffer: Buffer,
     activation_function_buffer: Buffer,
-    gradient_buffer: Buffer,
     gradient_coefficient_buffer: Rc<Buffer>,
     gradient_intermediary_buffer: Buffer,
     gradient_back_prop_buffer: Rc<Buffer>,
 
     // Input Bind group information
-    input_buffer: Rc<Buffer>,
     input_bind_group_layout: BindGroupLayout,
     input_bind_group: BindGroup,
 
     // Feed forward bind group information
-    feed_forward_bind_group_layout: BindGroupLayout,
     feed_forward_bind_group: BindGroup,
 
     // Back Propogation bind groups
-    back_propogation_bind_group_layout: BindGroupLayout,
     back_propogation_bind_group: BindGroup,
 
-    learning_rate_bind_group_layout: BindGroupLayout,
+    // Learning Rate bind group information
     learning_rate_bind_group: BindGroup,
-
-    // Gradient descent bind groups
-    gradient_descent_bind_group_layout: Option<BindGroupLayout>,
-    gradient_descent_bind_group: Option<BindGroup>,
 
     // GPU pipeline information
     feed_forward_pipeline: ComputePipeline,
     back_propogation_pipeline: ComputePipeline,
     coeff_pipeline: Option<ComputePipeline>,
-    regularization_pipeline: Option<ComputePipeline>,
-    gradient_descent_pipeline: Option<ComputePipeline>,
-
-    // Buffer information that needs to be linked after creation
-    next_layer_gradient_coefficient_buffer: Option<Rc<Buffer>>,
-    next_layer_weights_buffer: Option<Rc<Buffer>>,
-    next_layer_dimensions_buffer: Option<Rc<Buffer>>,
-    next_layer_bind_group_layout: Option<BindGroupLayout>,
-    next_layer_bind_group: Option<BindGroup>,
 
     // Buffer information that is needed to get the gradient coefficient
     coeff_bind_group_layout: Option<BindGroupLayout>,
@@ -516,40 +498,24 @@ impl DenseLayer {
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            regularization_output_buffer,
             activation_function_buffer,
-            gradient_buffer,
             gradient_coefficient_buffer,
             gradient_intermediary_buffer,
             gradient_back_prop_buffer,
             // ------------------------------------
-            input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout,
             input_bind_group,
             // ------------------------------------
-            feed_forward_bind_group_layout,
             feed_forward_bind_group,
             // ------------------------------------
-            back_propogation_bind_group_layout,
             back_propogation_bind_group,
-
-            learning_rate_bind_group_layout,
-            learning_rate_bind_group,
             // ------------------------------------
-            gradient_descent_bind_group_layout: None,
-            gradient_descent_bind_group: None,
+            learning_rate_bind_group,
             // ------------------------------------
             feed_forward_pipeline,
             back_propogation_pipeline,
             coeff_pipeline: None,
-            regularization_pipeline: None,
-            gradient_descent_pipeline: None,
             // ------------------------------------
-            next_layer_gradient_coefficient_buffer: None,
-            next_layer_weights_buffer: None,
-            next_layer_dimensions_buffer: None,
-            next_layer_bind_group_layout: None,
-            next_layer_bind_group: None,
             coeff_bind_group_layout: None,
             coeff_bind_group: None,
         }
@@ -661,40 +627,24 @@ impl DenseLayer {
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            regularization_output_buffer,
             activation_function_buffer,
-            gradient_buffer,
             gradient_coefficient_buffer,
             gradient_intermediary_buffer,
             gradient_back_prop_buffer,
             // ------------------------------------
-            input_buffer: input_connecting_bind_group.buffer.clone(),
             input_bind_group_layout,
             input_bind_group,
             // ------------------------------------
-            feed_forward_bind_group_layout,
             feed_forward_bind_group,
             // ------------------------------------
-            back_propogation_bind_group_layout,
             back_propogation_bind_group,
-
-            learning_rate_bind_group_layout,
-            learning_rate_bind_group,
             // ------------------------------------
-            gradient_descent_bind_group_layout: None,
-            gradient_descent_bind_group: None,
+            learning_rate_bind_group,
             // ------------------------------------
             feed_forward_pipeline,
             back_propogation_pipeline,
             coeff_pipeline: None,
-            regularization_pipeline: None,
-            gradient_descent_pipeline: None,
             // ------------------------------------
-            next_layer_gradient_coefficient_buffer: None,
-            next_layer_weights_buffer: None,
-            next_layer_dimensions_buffer: None,
-            next_layer_bind_group_layout: None,
-            next_layer_bind_group: None,
             coeff_bind_group_layout: None,
             coeff_bind_group: None,
         }
@@ -913,14 +863,6 @@ impl BackPropogationLayerConnection for DenseLayer {
     fn get_ceoff_back_prop_buffer(&self) -> Rc<Buffer> {
         self.gradient_back_prop_buffer.clone()
     }
-
-    fn get_weights_buffer(&self) -> Rc<Buffer> {
-        self.weights_buffer.clone()
-    }
-
-    fn get_dimensions_buffer(&self) -> Rc<Buffer> {
-        self.dimensions_buffer.clone()
-    }
 }
 
 impl FeedForwardLayer for DenseLayer {
@@ -1015,20 +957,6 @@ impl BackPropogationLayer for DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        // let gradient = read_buffer(
-        //     &self.gradient_buffer,
-        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let weights = read_buffer(
-        //     &self.weights_buffer,
-        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         encoder.insert_debug_marker("Sync Point: Dense Layer Coefficient Pipeline");
         device.poll(Maintain::Wait);
 
@@ -1060,8 +988,5 @@ impl BackPropogationLayer for DenseLayer {
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
-
-        // print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
-        // print_buffer(&weights, device, "Dense Layer Weights Buffer");
     }
 }

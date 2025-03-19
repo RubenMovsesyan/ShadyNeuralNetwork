@@ -4,7 +4,7 @@ use crate::create_buffer_bind_group;
 use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::loss::*;
 use crate::layer_structs::regularization::*;
-use crate::utils::{get_buffer, print_buffer, read_buffer};
+use crate::utils::{get_buffer, read_buffer};
 
 use super::weight_distribution::WeightDistribution;
 use super::{
@@ -356,17 +356,14 @@ fn create_pipelines(
     )
 }
 
-// #[allow(dead_code)]
 #[derive(Debug)]
 pub struct OutputLayer {
     pub num_inputs: u64,
     pub num_outputs: u64,
 
     // Buffers associated in feed forward computation
-    dimensions_buffer: Rc<Buffer>,
     weights_buffer: Rc<Buffer>,
     bias_buffer: Buffer,
-    // intermediary_buffer: Buffer,
     output_buffer: Buffer,
 
     // Cost function buffer
@@ -374,46 +371,31 @@ pub struct OutputLayer {
     loss_function_info_buffer: Buffer,
     expected_values_buffer: Buffer,
 
-    // buffers used in back propogation
+    // Buffers used in back propogation
     l_1_norm_buffer: Buffer,
     frobenius_norm_buffer: Buffer,
     regularization_info_buffer: Buffer,
-    regularization_output_buffer: Buffer,
-    gradient_buffer: Buffer,
-    // gradient_coefficient_buffer: Rc<Buffer>,
     gradient_back_prop_buffer: Rc<Buffer>,
 
-    // Bind group information
-    // input_buffer: Rc<Buffer>,
-    // input_bind_group_layout: BindGroupLayout,
+    // Input Bind group information
     input_bind_group: BindGroup,
 
     // Main bind group information
-    // feed_forward_bind_group_layout: BindGroupLayout,
     feed_forward_bind_group: BindGroup,
 
     // Cost function bind group information
-    // loss_function_bind_group_layout: BindGroupLayout,
     loss_function_bind_group: BindGroup,
 
     // Back Propogation bind groups
-    // back_propogation_bind_group_layout: BindGroupLayout,
     back_propogation_bind_group: BindGroup,
 
     // Learning Rate bind groups
-    // learning_rate_bind_group_layout: BindGroupLayout,
     learning_rate_bind_group: BindGroup,
-
-    // Gradient Descent Bind groups
-    // gradient_descent_bind_group_layout: Option<BindGroupLayout>,
-    // gradient_descent_bind_group: Option<BindGroup>,
 
     // GPU Pipeline Information
     feed_forward_pipeline: ComputePipeline,
     loss_function_pipeline: ComputePipeline,
     back_propogation_pipeline: ComputePipeline,
-    // regularization_pipeline: ComputePipeline,
-    // gradient_descent_pipeline: Option<ComputePipeline>,
 }
 
 impl OutputLayer {
@@ -515,10 +497,8 @@ impl OutputLayer {
             num_inputs: feed_forward_input.num_inputs,
             num_outputs,
             // -------------------------------
-            dimensions_buffer,
             weights_buffer,
             bias_buffer,
-            // intermediary_buffer,
             output_buffer,
             // -------------------------------
             loss_function_buffer,
@@ -528,29 +508,17 @@ impl OutputLayer {
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            regularization_output_buffer,
-            gradient_buffer,
-            // gradient_coefficient_buffer,
             gradient_back_prop_buffer,
             // -------------------------------
-            // input_buffer: feed_forward_input.buffer.clone(),
-            // input_bind_group_layout,
             input_bind_group,
             // -------------------------------
-            // feed_forward_bind_group_layout,
             feed_forward_bind_group,
             // -------------------------------
-            // loss_function_bind_group_layout,
             loss_function_bind_group,
             // -------------------------------
-            // learning_rate_bind_group_layout,
             learning_rate_bind_group,
             // -------------------------------
-            // back_propogation_bind_group_layout,
             back_propogation_bind_group,
-            // -------------------------------
-            // gradient_descent_bind_group_layout: None,
-            // gradient_descent_bind_group: None,
             // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
@@ -652,10 +620,8 @@ impl OutputLayer {
             num_inputs: output_layer_descriptor.num_inputs,
             num_outputs: output_layer_descriptor.num_outputs,
             // -------------------------------
-            dimensions_buffer,
             weights_buffer,
             bias_buffer,
-            // intermediary_buffer,
             output_buffer,
             // -------------------------------
             loss_function_buffer,
@@ -665,29 +631,17 @@ impl OutputLayer {
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            regularization_output_buffer,
-            gradient_buffer,
-            // gradient_coefficient_buffer,
             gradient_back_prop_buffer,
             // -------------------------------
-            // input_buffer: feed_forward_input.buffer.clone(),
-            // input_bind_group_layout,
             input_bind_group,
             // -------------------------------
-            // feed_forward_bind_group_layout,
             feed_forward_bind_group,
             // -------------------------------
-            // loss_function_bind_group_layout,
             loss_function_bind_group,
             // -------------------------------
-            // back_propogation_bind_group_layout,
             back_propogation_bind_group,
             // -------------------------------
-            // learning_rate_bind_group_layout,
             learning_rate_bind_group,
-            // -------------------------------
-            // gradient_descent_bind_group_layout: None,
-            // gradient_descent_bind_group: None,
             // -------------------------------
             feed_forward_pipeline,
             loss_function_pipeline,
@@ -839,6 +793,12 @@ impl OutputLayer {
         );
     }
 
+    /// Sets the information of the loss function buffer to the given loss function
+    ///
+    /// # Arguments
+    ///
+    /// * `loss_function` - Loss function to use for this layer
+    /// * `queue` - wgpu queue to write the information to the gpu
     pub fn set_loss_function(&self, loss_function: LossFunction, queue: &Queue) {
         queue.write_buffer(
             &self.loss_function_info_buffer,
@@ -847,6 +807,17 @@ impl OutputLayer {
         );
     }
 
+    /// Gets the cost from the loss that has been computed the last time that
+    /// the back propogation was ran
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - wgpu device to create a command encoder
+    /// * `queue` - wgpu queue to send commands to the gpu
+    ///
+    /// # Returns
+    ///
+    /// `f32` value representing the cost (average of all the loss values)
     pub fn get_cost(&self, device: &Device, queue: &Queue) -> f32 {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Output Cust Read Command Encoder"),
@@ -866,6 +837,16 @@ impl OutputLayer {
         vals.iter().sum::<f32>() / vals.len() as f32
     }
 
+    /// Gets the predicted values from the last time the feed forward has been run
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - wgpu device to create the command encoder
+    /// * `queue` - wgpu queue to senc commands to the gpu
+    ///
+    /// # Returns
+    ///
+    /// `Vec<f32>` containing all the predicted values from the last `feed_forward` call
     pub fn get_predicted_values(&self, device: &Device, queue: &Queue) -> Vec<f32> {
         let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("Output Layer Predicted Values Getter Command Encoder"),
@@ -887,14 +868,6 @@ impl OutputLayer {
 impl BackPropogationLayerConnection for OutputLayer {
     fn get_ceoff_back_prop_buffer(&self) -> Rc<Buffer> {
         self.gradient_back_prop_buffer.clone()
-    }
-
-    fn get_weights_buffer(&self) -> Rc<Buffer> {
-        self.weights_buffer.clone()
-    }
-
-    fn get_dimensions_buffer(&self) -> Rc<Buffer> {
-        self.dimensions_buffer.clone()
     }
 }
 
@@ -962,27 +935,6 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        // let predicted_values = read_buffer(
-        //     &self.output_buffer,
-        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let expected_values = read_buffer(
-        //     &self.expected_values_buffer,
-        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let loss_function = read_buffer(
-        //     &self.loss_function_buffer,
-        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         encoder.insert_debug_marker("Sync Point: Output Loss Pipeline Complete");
         device.poll(Maintain::Wait);
 
@@ -1044,58 +996,6 @@ impl BackPropogationLayer for OutputLayer {
         encoder.insert_debug_marker("Sync Point: Output Back Prop Pipeline Finished");
         device.poll(Maintain::Wait);
 
-        // let weights = read_buffer(
-        //     &self.weights_buffer,
-        //     self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let gradient = read_buffer(
-        //     &self.gradient_buffer,
-        //     self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let regular = read_buffer(
-        //     &self.regularization_output_buffer,
-        //     self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let l1_norm = read_buffer(
-        //     &self.l_1_norm_buffer,
-        //     std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
-        // let frobenius_norm = read_buffer(
-        //     &self.frobenius_norm_buffer,
-        //     std::mem::size_of::<f32>() as u64,
-        //     device,
-        //     &mut encoder,
-        // );
-
         queue.submit(Some(encoder.finish()));
-
-        // print_buffer(&predicted_values, device, "Output Layer Predicted Values");
-        // print_buffer(
-        //     &expected_values,
-        //     device,
-        //     "Output Layer Expected Values Function",
-        // );
-        // print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
-        // print_buffer(&gradient, device, "Output Gradient Buffer");
-        // print_buffer(&weights, device, "Output Weights Buffer");
-        // print_buffer(&regular, device, "Output Layer Regularization Buffer");
-        // print_buffer(&l1_norm, device, "Output Layer L1 Norm Buffer");
-        // print_buffer(
-        //     &frobenius_norm,
-        //     device,
-        //     "Output Layer Frobenius Norm Buffer",
-        // );
     }
 }

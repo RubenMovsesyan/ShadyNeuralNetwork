@@ -1,4 +1,4 @@
-use std::io::{Write, stdin, stdout};
+use std::io::{Write, stdout};
 
 use activation::{ActivationFunction, LeakyReLUFunction};
 #[allow(unused_imports)]
@@ -39,6 +39,7 @@ fn print_progress(progress: usize, total: usize) {
     print!("]");
 }
 
+#[allow(dead_code)]
 fn train() {
     let mut neural_net = create_neural_net().expect("Could not create neural net");
     neural_net.set_learning_rate(0.01);
@@ -75,6 +76,7 @@ fn train() {
     println!("Done!");
 }
 
+#[allow(dead_code)]
 fn test() {
     let mut neural_net = NeuralNet::load_model_from_file("test_files/nn_test.json").expect("F");
     neural_net.set_loss_function(LossFunction::MSE).expect("G");
