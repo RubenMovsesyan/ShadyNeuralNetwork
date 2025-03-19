@@ -1015,12 +1015,19 @@ impl BackPropogationLayer for DenseLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        let gradient = read_buffer(
-            &self.gradient_buffer,
-            self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let gradient = read_buffer(
+        //     &self.gradient_buffer,
+        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
+        // let weights = read_buffer(
+        //     &self.weights_buffer,
+        //     self.num_inputs * self.num_nodes * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         encoder.insert_debug_marker("Sync Point: Dense Layer Coefficient Pipeline");
         device.poll(Maintain::Wait);
@@ -1055,5 +1062,6 @@ impl BackPropogationLayer for DenseLayer {
         queue.submit(Some(encoder.finish()));
 
         // print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
+        // print_buffer(&weights, device, "Dense Layer Weights Buffer");
     }
 }

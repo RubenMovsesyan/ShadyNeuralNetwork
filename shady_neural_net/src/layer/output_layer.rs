@@ -378,7 +378,7 @@ pub struct OutputLayer {
     l_1_norm_buffer: Buffer,
     frobenius_norm_buffer: Buffer,
     regularization_info_buffer: Buffer,
-    // regularization_output_buffer: Buffer,
+    regularization_output_buffer: Buffer,
     gradient_buffer: Buffer,
     // gradient_coefficient_buffer: Rc<Buffer>,
     gradient_back_prop_buffer: Rc<Buffer>,
@@ -528,7 +528,7 @@ impl OutputLayer {
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            // regularization_output_buffer,
+            regularization_output_buffer,
             gradient_buffer,
             // gradient_coefficient_buffer,
             gradient_back_prop_buffer,
@@ -665,7 +665,7 @@ impl OutputLayer {
             l_1_norm_buffer,
             frobenius_norm_buffer,
             regularization_info_buffer,
-            // regularization_output_buffer,
+            regularization_output_buffer,
             gradient_buffer,
             // gradient_coefficient_buffer,
             gradient_back_prop_buffer,
@@ -962,26 +962,26 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
-        let predicted_values = read_buffer(
-            &self.output_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let predicted_values = read_buffer(
+        //     &self.output_buffer,
+        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
-        let expected_values = read_buffer(
-            &self.expected_values_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let expected_values = read_buffer(
+        //     &self.expected_values_buffer,
+        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
-        let loss_function = read_buffer(
-            &self.loss_function_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let loss_function = read_buffer(
+        //     &self.loss_function_buffer,
+        //     self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         encoder.insert_debug_marker("Sync Point: Output Loss Pipeline Complete");
         device.poll(Maintain::Wait);
@@ -1044,12 +1044,40 @@ impl BackPropogationLayer for OutputLayer {
         encoder.insert_debug_marker("Sync Point: Output Back Prop Pipeline Finished");
         device.poll(Maintain::Wait);
 
-        let gradient = read_buffer(
-            &self.gradient_buffer,
-            self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
+        // let weights = read_buffer(
+        //     &self.weights_buffer,
+        //     self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
+        // let gradient = read_buffer(
+        //     &self.gradient_buffer,
+        //     self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
+        // let regular = read_buffer(
+        //     &self.regularization_output_buffer,
+        //     self.num_inputs * self.num_outputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
+        // let l1_norm = read_buffer(
+        //     &self.l_1_norm_buffer,
+        //     std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
+        // let frobenius_norm = read_buffer(
+        //     &self.frobenius_norm_buffer,
+        //     std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
 
         queue.submit(Some(encoder.finish()));
 
@@ -1061,5 +1089,13 @@ impl BackPropogationLayer for OutputLayer {
         // );
         // print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
         // print_buffer(&gradient, device, "Output Gradient Buffer");
+        // print_buffer(&weights, device, "Output Weights Buffer");
+        // print_buffer(&regular, device, "Output Layer Regularization Buffer");
+        // print_buffer(&l1_norm, device, "Output Layer L1 Norm Buffer");
+        // print_buffer(
+        //     &frobenius_norm,
+        //     device,
+        //     "Output Layer Frobenius Norm Buffer",
+        // );
     }
 }

@@ -135,10 +135,30 @@ fn output_layer_back_propogate_main(
 
     workgroupBarrier();
 
-    // // normalize the gradient
-    // if (row < m && col < n) {
-        
-    // }
+    // normalize the gradient
+    // TODO: This can be optimized to use a parallel reduction algirithm
+    var sum = 0.0;
+    if (row < num_outputs && col < num_inputs) {
+        // Compute the L2 Norm of the gradient
+        for (var i: u32 = 0; i < num_inputs; i++) {
+            for (var j: u32 = 0; j < num_outputs; j++) {
+                let new_index = j * num_inputs + i;
+                sum += pow(gradient[new_index], 2.0);
+            }
+        }
+
+        sum = sqrt(sum);
+    }
+
+    workgroupBarrier();
+
+    if (row < num_outputs && col < num_inputs) {
+        if (sum > 0.5) { // Tau
+            gradient[index] /= sum;
+        }
+    }
+
+    workgroupBarrier();
 
     // Perform gradient descent on every weight in the matrix
     if (row < num_outputs && col < num_inputs) {

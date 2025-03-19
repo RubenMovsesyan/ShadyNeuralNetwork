@@ -1,6 +1,6 @@
 use std::io::{Write, stdin, stdout};
 
-use activation::ActivationFunction;
+use activation::{ActivationFunction, LeakyReLUFunction};
 #[allow(unused_imports)]
 use log::*;
 use loss::LossFunction;
@@ -12,7 +12,14 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
     let mut neural_net = NeuralNet::new().expect("Could not initialize Neural Net");
     neural_net
         .add_input_layer(2)?
-        .add_dense_layer(3, ActivationFunction::ReLU)?
+        .add_dense_layer(
+            3,
+            ActivationFunction::LeakyReLU(LeakyReLUFunction { a: 1.0 }),
+        )?
+        .add_dense_layer(
+            3,
+            ActivationFunction::LeakyReLU(LeakyReLUFunction { a: 1.0 }),
+        )?
         .add_output_layer(2)?;
 
     Ok(neural_net)
@@ -57,7 +64,7 @@ fn train() {
 
         _ = stdout().flush();
 
-        neural_net.set_learning_rate(cost * 0.01);
+        neural_net.set_learning_rate((cost * 0.01).min(0.1));
 
         print_progress(i, passes);
         print!(" Cost: {cost} ");
@@ -100,6 +107,6 @@ fn test() {
 fn main() {
     pretty_env_logger::init();
 
-    // train();
-    test();
+    train();
+    // test();
 }
