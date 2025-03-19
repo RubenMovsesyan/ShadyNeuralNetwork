@@ -631,10 +631,10 @@ impl OutputLayer {
             &gradient_buffer,
             &gradient_coefficient_buffer,
             &gradient_back_prop_buffer,
-            learning_rate_buffer,
             &loss_function_buffer,
             &loss_function_info_buffer,
             &expected_values_buffer,
+            learning_rate_buffer,
         );
 
         let (feed_forward_pipeline, loss_function_pipeline, back_propogation_pipeline) =
@@ -865,6 +865,23 @@ impl OutputLayer {
 
         vals.iter().sum::<f32>() / vals.len() as f32
     }
+
+    pub fn get_predicted_values(&self, device: &Device, queue: &Queue) -> Vec<f32> {
+        let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+            label: Some("Output Layer Predicted Values Getter Command Encoder"),
+        });
+
+        let prediction = read_buffer(
+            &self.output_buffer,
+            self.num_outputs * std::mem::size_of::<f32>() as u64,
+            device,
+            &mut encoder,
+        );
+
+        queue.submit(Some(encoder.finish()));
+
+        get_buffer(&prediction, device)
+    }
 }
 
 impl BackPropogationLayerConnection for OutputLayer {
@@ -1036,13 +1053,13 @@ impl BackPropogationLayer for OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&predicted_values, device, "Output Layer Predicted Values");
-        print_buffer(
-            &expected_values,
-            device,
-            "Output Layer Expected Values Function",
-        );
-        print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
-        print_buffer(&gradient, device, "Output Gradient Buffer");
+        // print_buffer(&predicted_values, device, "Output Layer Predicted Values");
+        // print_buffer(
+        //     &expected_values,
+        //     device,
+        //     "Output Layer Expected Values Function",
+        // );
+        // print_buffer(&loss_function, device, "Output Layer Loss Fucntion");
+        // print_buffer(&gradient, device, "Output Gradient Buffer");
     }
 }

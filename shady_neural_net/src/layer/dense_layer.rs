@@ -1054,6 +1054,6 @@ impl BackPropogationLayer for DenseLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
+        // print_buffer(&gradient, device, "Dense Layer Gradient Buffer");
     }
 }

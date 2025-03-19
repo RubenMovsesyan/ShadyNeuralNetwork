@@ -3,6 +3,7 @@ use std::io::{Write, stdin, stdout};
 use activation::ActivationFunction;
 #[allow(unused_imports)]
 use log::*;
+use loss::LossFunction;
 
 use data_generator::*;
 use shady_neural_net::*;
@@ -32,8 +33,9 @@ fn print_progress(progress: usize, total: usize) {
 }
 
 fn train() {
-    let neural_net = create_neural_net().expect("Could not create neural net");
+    let mut neural_net = create_neural_net().expect("Could not create neural net");
     neural_net.set_learning_rate(0.01);
+    neural_net.set_loss_function(LossFunction::MSE).expect("G");
     let passes = 500;
 
     for i in 0..passes {
@@ -67,7 +69,8 @@ fn train() {
 }
 
 fn test() {
-    let neural_net = NeuralNet::load_model_from_file("test_files/nn_test.json").expect("F");
+    let mut neural_net = NeuralNet::load_model_from_file("test_files/nn_test.json").expect("F");
+    neural_net.set_loss_function(LossFunction::MSE).expect("G");
 
     for _ in 0..100 {
         let rand_x = rand::random_range(-1.0..=1.0);
@@ -76,25 +79,27 @@ fn test() {
         let expected = generate_x_y_function(rand_x, rand_y);
 
         _ = neural_net.feed_forward(vec![rand_x, rand_y]);
+        let vals = neural_net.get_output();
 
-        // let cost = vals
-        //     .iter()
-        //     .zip(expected.iter())
-        //     .map(|(pred, expe)| pred - expe)
-        //     .collect::<Vec<f32>>();
+        let cost = {
+            let diffs = vals
+                .iter()
+                .zip(expected.iter())
+                .map(|(val, expected)| val - expected)
+                .collect::<Vec<f32>>();
+            diffs.iter().sum::<f32>() / diffs.len() as f32
+        };
 
-        // println!(
-        //     "Vals: {:#?}\nExpected: {:#?}\n Cost: {}",
-        //     vals,
-        //     expected,
-        //     cost.iter().sum::<f32>() / cost.len() as f32
-        // );
+        println!(
+            "Vals: {:#?}\nExpected: {:#?}\n Cost: {}",
+            vals, expected, cost,
+        );
     }
 }
 
 fn main() {
     pretty_env_logger::init();
 
-    train();
-    // test();
+    // train();
+    test();
 }

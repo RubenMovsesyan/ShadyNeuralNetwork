@@ -64,34 +64,58 @@ fn binary_cross_entropy_loss(predicted: f32, expected: f32) -> f32 {
 }
 
 // Hinge Loss
-fn hinge_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+fn hinge_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
-fn hinge_loss(predicted: f32, expected: f32) -> f32 {}
+fn hinge_loss(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
 // Mean Squared Error Loss
-fn mean_squared_error_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+fn mean_squared_error_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return predicted - expected;
+}
 
-fn mean_squared_error_loss(predicted: f32, expected: f32) -> f32 {}
+fn mean_squared_error_loss(predicted: f32, expected: f32) -> f32 {
+    return 0.5 * pow(expected - predicted, 2.0);
+}
 
 // Mean Absolute Error Loss
-fn mean_absolute_error_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+fn mean_absolute_error_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
-fn mean_absolute_error_loss(predicted: f32, expected: f32) -> f32 {}
+fn mean_absolute_error_loss(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
 // Huber Loss
-fn huber_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+fn huber_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
-fn huber_loss(predicted: f32, expected: f32) -> f32 {}
+fn huber_loss(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
 // Log Cosh Loss
-fn log_cosh_loss_gradient(predicted: f32, expected: f32) -> f32 {}
+fn log_cosh_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
-fn log_cosh_loss(predicted: f32, expected: f32) -> f32 {}
+fn log_cosh_loss(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
 // Quantile Loss
-fn quantile_loss_gradinent(predicted: f32, expected: f32) -> f32 {}
+fn quantile_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 0.0;
+}
 
-fn quantile_loss(predicted: f32, expexted: f32) -> f32 {}
+fn quantile_loss(predicted: f32, expexted: f32) -> f32 {
+    return 0.0;
+}
 
 @compute @workgroup_size(256)
 fn output_layer_loss_main(
@@ -133,8 +157,8 @@ fn output_layer_loss_main(
                 gradient_coefficient[row] = huber_loss_gradient(predicted, expected);
             }
             case LOG_COSH: {
-                loss_function_buffer[row] = log_cose_loss(predicted, expected);
-                gradient_coefficient[row] = log_cose_loss_gradient(predicted, expected);
+                loss_function_buffer[row] = log_cosh_loss(predicted, expected);
+                gradient_coefficient[row] = log_cosh_loss_gradient(predicted, expected);
             }
             case QUANTILE: {
                 loss_function_buffer[row] = quantile_loss(predicted, expected);

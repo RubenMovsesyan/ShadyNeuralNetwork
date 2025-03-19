@@ -1,4 +1,5 @@
 use layer_structs::activation::ActivationFunction;
+use layer_structs::loss::*;
 use pollster::*;
 use regularization::{Regularization, RegularizationFunction};
 use serde::{Deserialize, Serialize};
@@ -300,7 +301,25 @@ impl NeuralNet {
                 output_layer.feed_forward(&self.device, &self.queue);
                 Ok(())
             }
-            _ => return Err(Box::new(NoHiddenLayersAddedError)),
+            _ => return Err(Box::new(NoOutputLayerAddedError)),
+        }
+    }
+
+    pub fn get_output(&self) -> Vec<f32> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                output_layer.get_predicted_values(&self.device, &self.queue)
+            }
+            _ => vec![],
+        }
+    }
+
+    pub fn set_loss_function(&mut self, loss_function: LossFunction) -> Result<(), Box<dyn Error>> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                Ok(output_layer.set_loss_function(loss_function, &self.queue))
+            }
+            _ => Err(Box::new(NoOutputLayerAddedError)),
         }
     }
 
