@@ -1,3 +1,23 @@
+// Custom Structs
+struct Bias {
+    bias: f32,
+    bias_weight: f32,
+}
+
+struct ActivationFunctionDescriptor {
+    function_type: u32,
+    function_parameter: f32,
+}
+
+// Constants
+const STEP: u32 = 0;
+const THRESHOLD: u32 = 1;
+const BINARY_SIGMOID: u32 = 2;
+const BIPOLAR_SIGMOID: u32 = 3;
+const RELU: u32 = 4;
+const LEAKY_RELU: u32 = 5;
+const HYPERBOLIC_TANGENT: u32 = 6;
+ 
 // Inputs from the previous layer
 @group(0) @binding(0)
 var<storage, read> input_buffer: array<f32>;
@@ -10,24 +30,11 @@ var<uniform> dims: vec2<u32>;
 @group(1) @binding(1)
 var<storage, read> weights_buffer: array<f32>;
 
-struct Bias {
-    bias: f32,
-    bias_weight: f32,
-}
-
 // Biases of the current layer
 @group(1) @binding(2)
 var<storage, read> bias_buffer: array<Bias>;
 
-
-struct ActivationFunctionDescriptor {
-    function_type: u32,
-    function_parameter: f32,
-}
-
-// Activation function informaiton
-// The function type
-// and the parameter if necessary
+// Activation function information
 @group(1) @binding(3)
 var<uniform> activation_function: ActivationFunctionDescriptor;
 
@@ -35,22 +42,11 @@ var<uniform> activation_function: ActivationFunctionDescriptor;
 @group(1) @binding(4)
 var<storage, read_write> intermediary_buffer: array<f32>;
 
-// Output buffer after the activation function is applied
+// Output Buffer after the activation function is applied
 @group(1) @binding(5)
 var<storage, read_write> output_buffer: array<f32>;
 
-
-// Constants
-const STEP: u32 = 0;
-const THRESHOLD: u32 = 1;
-const BINARY_SIGMOID: u32 = 2;
-const BIPOLAR_SIGMOID: u32 = 3;
-const RELU: u32 = 4;
-const LEAKY_RELU: u32 = 5;
-const HYPERBOLIC_TANGENT: u32 = 6;
-
-
-// Here are the different activation functions
+// Functions for the activation functions
 fn step(x: f32) -> f32 {
     if (x >= 0.0) {
         return 1.0;
@@ -67,9 +63,12 @@ fn threshold(x: f32, theta: f32) -> f32 {
     }
 }
 
-
 fn binary_sigmoid(x: f32, k: f32) -> f32 {
-    let bottom = 1.0 + exp(-k  * x);
+    let bottom = 1.0 + exp(-k * x);
+
+    if (bottom == 0.0) {
+        return 0.0;
+    }
 
     return 1.0 / bottom;
 }
@@ -77,6 +76,10 @@ fn binary_sigmoid(x: f32, k: f32) -> f32 {
 fn bipolar_sigmoid(x: f32, k: f32) -> f32 {
     let top = 1.0 - exp(-k * x);
     let bottom = 1.0 + exp(-k * x);
+
+    if (bottom == 0.0) {
+        return 0.0;
+    }
 
     return top / bottom;
 }
@@ -101,31 +104,46 @@ fn hyperbolic_tangent(x: f32) -> f32 {
     let top = exp(x) - exp(-x);
     let bottom = exp(x) + exp(-x);
 
+    if (bottom == 0.0) {
+        return 0.0;
+    }
+
     return top / bottom;
 }
 
-
 @compute @workgroup_size(256)
-fn dense_layer_main(
+fn dense_layer_feed_forward_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
-    let m = dims.x;
-    let n = dims.y;
+    // Num Nodes
+    let num_outputs = dims.x;
+    // Num Inputs
+    let num_inputs = dims.y;
 
-    if (row < n) {
+    if (row < num_inputs) {
+        // Matrix multiplication of the weights matrix to the input buffer
         var sum: f32 = 0.0;
-        for (var k: u32 = 0; k < m; k++) {
-            let index = row * m + k;
+        for (var k: u32 = 0; k < num_inputs; k++) {
+            //          [x] 
+            //          [y] 
+            //          [z] 
+            //          [w] 
+            // [1 2 3 4]
+            // [a b c d]
+            // [a b c d]
+            let index = row * num_inputs + k;
+
             sum += weights_buffer[index] * input_buffer[k];
         }
 
+        // Add the bias to the sum buffer
         sum += bias_buffer[row].bias * bias_buffer[row].bias_weight;
 
-        // Store the weighted sum in the intermediary buffer to be use
-        // for back propogation before applying the activation function
+        // Store the weighted sum in the intermediary buffer to
+        // be used for back propogation before applying the
+        // actication function
         intermediary_buffer[row] = sum;
-
 
         // Run the sum through the activation function
         switch activation_function.function_type {
@@ -155,31 +173,10 @@ fn dense_layer_main(
             }
         }
 
-
+        // Store the output of the activation function in
+        // the output buffer
         output_buffer[row] = sum;
     }
 
-    // // Synchronize workgroups here
-    // workgroupBarrier();
-
-    // if (row < m) {
-    //     // Normalize the functions that need to be normalized
-    //     switch activation_function.function_type {
-    //         case BINARY_SIGMOID, BIPOLAR_SIGMOID, RELU, LEAKY_RELU: {
-    //             var length: f32 = 0.0;
-    //             for (var i = 0u; i < m; i++) {
-    //                 length += output_buffer[i] * output_buffer[i];
-    //             }
-
-    //             length = sqrt(length);
-
-    //             output_buffer[row] /= length;
-    //         }
-    //         default: {}
-    //     }
-
-        
-    // }
-    
     workgroupBarrier();
 }

@@ -12,7 +12,8 @@ use wgpu::{
 use crate::create_buffer_bind_group;
 
 use super::{
-    FeedForwardLayer, WORK_GROUP_SIZE, compute_workgroup_size, errors::InputLengthMismatchError,
+    FeedForwardLayerConnection, WORK_GROUP_SIZE, compute_workgroup_size,
+    errors::InputLengthMismatchError,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,7 +219,7 @@ impl InputLayer {
     }
 }
 
-impl FeedForwardLayer for InputLayer {
+impl FeedForwardLayerConnection for InputLayer {
     fn get_output_buffer(&self) -> Rc<Buffer> {
         self.buffer.clone()
     }

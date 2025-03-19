@@ -52,10 +52,10 @@ fn dense_layer_regularization_main(
     let col = global_id.y;
     let m = dims.x;
     let n = dims.y;
+    let index = row * n + col;
 
     // WARN: watch this very carefully, the matrix multiplication might be wrong
     if (row < m && col < n) {
-        let index = row * n + col;
 
         let weight = weights_buffer[index];
         let lambda_1 = regularization_info_buffer.hyper_parameter_1;
@@ -73,7 +73,12 @@ fn dense_layer_regularization_main(
 
             regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight;
         } else if (regularization_info_buffer.function_type == RIDGE) {
-            regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
+            // regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
+            if (frobenius_norm_uniform == 0.0) {
+                regularization_output_buffer[index] = lambda_1;
+            } else {
+                regularization_output_buffer[index] = lambda_1 * (weight / frobenius_norm_uniform);
+            }
         } else if (regularization_info_buffer.function_type == ELASTIC_NET_REGRESSION) {
             var grad: f32 = 0.0;
 
@@ -84,10 +89,34 @@ fn dense_layer_regularization_main(
                 grad = -1.0;
             }
 
-            regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
+            // regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
+
+            if (frobenius_norm_uniform == 0.0) {
+                regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2;
+            } else {
+                regularization_output_buffer[index] = lambda_1 * grad * l_1_norm_uniform * weight + lambda_2 * (weight / frobenius_norm_uniform);
+            }
         }
 
         // Compute the scalar for the dense layer term
+    //     gradient_buffer[index] = calculate_gradient(index, row, col);
+    // }
         gradient_buffer[index] = calculate_gradient(index, row, col);
     }
+
+    workgroupBarrier();
+
+    
+    if (row < m && col < n) {
+        var sum = 0.0;
+        for (var i = 0u; i < (m * n); i++) {
+            sum += gradient_buffer[index];
+        }
+
+        sum /= f32(m * n);
+
+        gradient_buffer[index] /= sum;
+    }
+
+    workgroupBarrier();
 }

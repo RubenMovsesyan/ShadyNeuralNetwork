@@ -3,8 +3,9 @@ use std::rc::Rc;
 #[allow(unused_imports)]
 use log::*;
 
+use regularization::Regularization;
 use serde::{Deserialize, Serialize};
-use wgpu::{Buffer, Device};
+use wgpu::{Buffer, Device, Queue};
 
 // Module for inner structures in the Neural Network
 use crate::{LayerMismatchError, layer_structs::*};
@@ -21,6 +22,7 @@ mod bind_group_macro;
 mod dense_layer;
 mod input_layer;
 mod output_layer;
+mod weight_distribution;
 
 pub mod errors;
 
@@ -43,17 +45,23 @@ fn compute_2d_workgroup_size(
 }
 
 // Trait for layers that have a feed forawrd connection to the next layer
-pub trait FeedForwardLayer {
+pub trait FeedForwardLayerConnection {
     fn get_output_buffer(&self) -> Rc<Buffer>;
 }
 
 // Trait for layers that have a back propogation connection to the previous layer
+pub trait BackPropogationLayerConnection {
+    fn get_ceoff_back_prop_buffer(&self) -> Rc<Buffer>;
+}
+
+// Trait for feeding data forward
+pub trait FeedForwardLayer {
+    fn feed_forward(&self, device: &Device, queue: &Queue);
+}
+
+// Trait for performing back propogation and gradiend descent
 pub trait BackPropogationLayer {
-    fn get_gradient_coefficient_buffer(&self) -> Rc<Buffer>;
-
-    fn get_weights_buffer(&self) -> Rc<Buffer>;
-
-    fn get_dimensions_buffer(&self) -> Rc<Buffer>;
+    fn back_propogate(&self, regularization: Regularization, device: &Device, queue: &Queue);
 }
 
 pub struct FeedForwardConnection {
@@ -62,9 +70,7 @@ pub struct FeedForwardConnection {
 }
 
 pub struct BackPropogationConnection {
-    pub gradient_coefficient_buffer: Rc<Buffer>,
-    pub weights_buffer: Rc<Buffer>,
-    pub dimensions_buffer: Rc<Buffer>,
+    pub grad_coeff_back_prop_buffer: Rc<Buffer>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

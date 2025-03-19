@@ -7,3 +7,5 @@ edition = "2024"
 log = "0.4.26"
 pretty_env_logger = "0.5.0"
 shady_neural_net = { path = "../shady_neural_net" }
+data_generator = { path = "../data_generator" }
+rand = "0.9.0"

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 #[repr(C)]
 #[derive(Pod, Zeroable, Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Bias {
-    bias: f32,
-    weight: f32,
+    pub bias: f32,
+    pub weight: f32,
 }
 
 impl Bias {

@@ -1,4 +1,5 @@
 use layer_structs::activation::ActivationFunction;
+use layer_structs::loss::*;
 use pollster::*;
 use regularization::{Regularization, RegularizationFunction};
 use serde::{Deserialize, Serialize};
@@ -12,9 +13,9 @@ use std::{
 use log::*;
 
 use layer::{
-    BackPropogationConnection, BackPropogationLayer, DenseLayer, DenseLayerDescriptor, InputLayer,
-    InputLayerDescriptor, NeuralNetLayer, NeuralNetLayerDescriptor, OutputLayer,
-    OutputLayerDescriptor, errors::*,
+    BackPropogationConnection, BackPropogationLayer, BackPropogationLayerConnection, DenseLayer,
+    DenseLayerDescriptor, FeedForwardLayer, InputLayer, InputLayerDescriptor, NeuralNetLayer,
+    NeuralNetLayerDescriptor, OutputLayer, OutputLayerDescriptor, errors::*,
 };
 use wgpu::{
     Backends, Buffer, BufferDescriptor, BufferUsages, Device, DeviceDescriptor, Features, Instance,
@@ -140,21 +141,20 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_layer = DenseLayer::new(
+        let new_layer = DenseLayer::new(
             &connecting_buffer,
             num_nodes,
             activation_function,
+            &self.learning_rate,
             &self.device,
         );
 
-        new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        // new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_layer.get_gradient_coefficient_buffer(),
-                weights_buffer: new_layer.get_weights_buffer(),
-                dimensions_buffer: new_layer.get_dimensions_buffer(),
+                grad_coeff_back_prop_buffer: new_layer.get_ceoff_back_prop_buffer(),
             },
         );
 
@@ -177,17 +177,19 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_layer =
-            DenseLayer::from_descriptor(dense_layer_descriptor, &connecting_buffer, &self.device);
+        let new_layer = DenseLayer::from_descriptor(
+            dense_layer_descriptor,
+            &connecting_buffer,
+            &self.learning_rate,
+            &self.device,
+        );
 
-        new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        // new_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_layer.get_gradient_coefficient_buffer(),
-                weights_buffer: new_layer.get_weights_buffer(),
-                dimensions_buffer: new_layer.get_dimensions_buffer(),
+                grad_coeff_back_prop_buffer: new_layer.get_ceoff_back_prop_buffer(),
             },
         );
 
@@ -206,16 +208,17 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_output_layer = OutputLayer::new(&connecting_buffer, num_outputs, &self.device);
-
-        new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        let new_output_layer = OutputLayer::new(
+            &connecting_buffer,
+            num_outputs,
+            &self.learning_rate,
+            &self.device,
+        );
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_output_layer.get_gradient_coefficient_buffer(),
-                weights_buffer: new_output_layer.get_weights_buffer(),
-                dimensions_buffer: new_output_layer.get_dimensions_buffer(),
+                grad_coeff_back_prop_buffer: new_output_layer.get_ceoff_back_prop_buffer(),
             },
         );
 
@@ -234,17 +237,17 @@ impl NeuralNet {
         };
 
         let connecting_buffer = previous_layer.get_connecting_bind_group().unwrap();
-        let mut new_output_layer =
-            OutputLayer::from_descriptor(output_layer_descriptor, &connecting_buffer, &self.device);
-
-        new_output_layer.link_gradient_descent_pipeline(&self.device, &self.learning_rate);
+        let new_output_layer = OutputLayer::from_descriptor(
+            output_layer_descriptor,
+            &connecting_buffer,
+            &self.learning_rate,
+            &self.device,
+        );
 
         previous_layer.link_next_layer_weights(
             &self.device,
             BackPropogationConnection {
-                gradient_coefficient_buffer: new_output_layer.get_gradient_coefficient_buffer(),
-                weights_buffer: new_output_layer.get_weights_buffer(),
-                dimensions_buffer: new_output_layer.get_dimensions_buffer(),
+                grad_coeff_back_prop_buffer: new_output_layer.get_ceoff_back_prop_buffer(),
             },
         );
 
@@ -261,7 +264,7 @@ impl NeuralNet {
         );
     }
 
-    pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<Vec<f32>, Box<dyn Error>> {
+    pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<(), Box<dyn Error>> {
         // FIXME fix this
         match self.input_layer.as_ref().unwrap() {
             NeuralNetLayer::Input(input_layer) => input_layer
@@ -281,27 +284,48 @@ impl NeuralNet {
 
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                Ok(output_layer.feed_forward(&self.device, &self.queue))
+                // Ok(output_layer.feed_forward(&self.device, &self.queue))
+                output_layer.feed_forward(&self.device, &self.queue);
+                Ok(())
             }
-            _ => return Err(Box::new(NoHiddenLayersAddedError)),
+            _ => return Err(Box::new(NoOutputLayerAddedError)),
         }
     }
 
-    pub fn get_cost(&self, mut expected_values: Vec<f32>) -> Result<f32, Box<dyn Error>> {
-        // Normalize the input vector
-        {
-            let avg = expected_values.iter().sum::<f32>() / expected_values.len() as f32;
-            expected_values = expected_values
-                .iter_mut()
-                .map(|value| *value / avg)
-                .collect();
-        }
-
+    pub fn get_output(&self) -> Vec<f32> {
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                Ok(output_layer.compute_loss(&expected_values, &self.device, &self.queue))
+                output_layer.get_predicted_values(&self.device, &self.queue)
             }
-            _ => return Err(Box::new(NoHiddenLayersAddedError)),
+            _ => vec![],
+        }
+    }
+
+    pub fn set_loss_function(&mut self, loss_function: LossFunction) -> Result<(), Box<dyn Error>> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                Ok(output_layer.set_loss_function(loss_function, &self.queue))
+            }
+            _ => Err(Box::new(NoOutputLayerAddedError)),
+        }
+    }
+
+    pub fn set_loss(&self, expected_values: Vec<f32>) -> Result<(), Box<dyn Error>> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                output_layer.set_expected_weights(&expected_values, &self.queue);
+                Ok(())
+            }
+            _ => return Err(Box::new(NoOutputLayerAddedError)),
+        }
+    }
+
+    pub fn get_cost(&self) -> Result<f32, Box<dyn Error>> {
+        match self.output_layer.as_ref().unwrap() {
+            NeuralNetLayer::Output(output_layer) => {
+                Ok(output_layer.get_cost(&self.device, &self.queue))
+            }
+            _ => Err(Box::new(NoOutputLayerAddedError)),
         }
     }
 
@@ -310,9 +334,9 @@ impl NeuralNet {
             if let NeuralNetLayer::Output(output_layer) = layer {
                 output_layer.back_propogate(
                     Regularization {
-                        function: RegularizationFunction::ElasticNetRegression,
-                        hyper_parameter_1: 0.1,
-                        hyper_parameter_2: 0.1,
+                        function: RegularizationFunction::Lasso,
+                        hyper_parameter_1: 2.0,
+                        hyper_parameter_2: 1.0,
                     },
                     &self.device,
                     &self.queue,
@@ -324,27 +348,13 @@ impl NeuralNet {
             if let NeuralNetLayer::Dense(dense_layer) = layer {
                 dense_layer.back_propogate(
                     Regularization {
-                        function: RegularizationFunction::ElasticNetRegression,
-                        hyper_parameter_1: 0.1,
-                        hyper_parameter_2: 0.1,
+                        function: RegularizationFunction::Lasso,
+                        hyper_parameter_1: 2.0,
+                        hyper_parameter_2: 1.0,
                     },
                     &self.device,
                     &self.queue,
                 );
-            }
-        }
-    }
-
-    pub fn gradient_decent(&self) {
-        for layer in self.hidden_layers.iter() {
-            if let NeuralNetLayer::Dense(dense_layer) = layer {
-                dense_layer.gradient_descent(&self.device, &self.queue);
-            }
-        }
-
-        if let Some(layer) = self.output_layer.as_ref() {
-            if let NeuralNetLayer::Output(output_layer) = layer {
-                output_layer.gradient_descent(&self.device, &self.queue);
             }
         }
     }

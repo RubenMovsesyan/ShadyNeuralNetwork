@@ -26,7 +26,7 @@ fn output_layer_gradient_descent_main(
         let weight = weights_buffer[index];
         let gradient = gradient_buffer[index];
 
-        weights_buffer[index] = weight - (learning_rate * gradient);
+        weights_buffer[index] = weight + (learning_rate * gradient);
     }
 
     workgroupBarrier();

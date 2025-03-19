@@ -159,6 +159,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "data_generator"
+version = "0.1.0"
+
+[[package]]
 name = "document-features"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -510,8 +514,10 @@ dependencies = [
 name = "network_maker"
 version = "0.1.0"
 dependencies = [
+ "data_generator",
  "log",
  "pretty_env_logger",
+ "rand",
  "shady_neural_net",
 ]
 
