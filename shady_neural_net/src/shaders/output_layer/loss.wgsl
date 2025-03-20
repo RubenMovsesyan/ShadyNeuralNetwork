@@ -38,6 +38,7 @@ const MAE: u32 = 3; // Mean Absolute Error,
 const HUBER: u32 = 4; // Smooth mean absolute error
 const LOG_COSH: u32 = 5;
 const QUANTILE: u32 = 6;
+const DIFF: u32 = 7;
 
 // Helper functions to compute the loss and the gradient
 
@@ -117,6 +118,15 @@ fn quantile_loss(predicted: f32, expexted: f32) -> f32 {
     return 0.0;
 }
 
+// Diff Loss
+fn diff_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 1.0;
+}
+
+fn diff_loss(predicted: f32, expected: f32) -> f32 {
+    return predicted - expected;
+}
+
 @compute @workgroup_size(256)
 fn output_layer_loss_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
@@ -163,6 +173,12 @@ fn output_layer_loss_main(
             case QUANTILE: {
                 loss_function_buffer[row] = quantile_loss(predicted, expected);
                 gradient_coefficient[row] = quantile_loss_gradient(predicted, expected);
+            }
+            case DIFF: {
+                // dZ
+                loss_function_buffer[row] = diff_loss(predicted, expected);
+                // gradient_coefficient[row] = diff_loss_gradient(predicted, expected);
+                gradient_coefficient[row] = diff_loss(predicted, expected);
             }
             default: {}
         }

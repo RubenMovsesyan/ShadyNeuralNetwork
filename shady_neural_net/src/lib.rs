@@ -310,7 +310,7 @@ impl NeuralNet {
         }
     }
 
-    pub fn set_loss(&self, expected_values: &Vec<f32>) -> Result<(), Box<dyn Error>> {
+    pub fn compute_loss(&self, expected_values: &Vec<f32>) -> Result<(), Box<dyn Error>> {
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
                 output_layer.set_expected_weights(expected_values, &self.queue);

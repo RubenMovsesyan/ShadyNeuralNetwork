@@ -53,6 +53,7 @@ fn create_bind_groups(
     gradient_buffer: &Buffer,
     gradient_coefficient_buffer: &Buffer,
     learning_rate_buffer: &Buffer,
+    bias_gradient_buffer: &Buffer,
 ) -> (
     (BindGroupLayout, BindGroup),
     (BindGroupLayout, BindGroup),
@@ -95,7 +96,9 @@ fn create_bind_groups(
             8,
             regularization_output_buffer,
             Bbt::Storage { read_only: false }
-        )
+        ),
+        (9, bias_gradient_buffer, Bbt::Storage { read_only: false }),
+        (10, bias_buffer, Bbt::Storage { read_only: false })
     );
 
     let (learning_rate_bind_group_layout, learning_rate_bind_group) = create_buffer_bind_group!(
@@ -169,6 +172,7 @@ fn create_buffers(
     num_nodes: u64,
     activation_function: ActivationFunction,
 ) -> (
+    Buffer,
     Buffer,
     Buffer,
     Buffer,
@@ -318,6 +322,13 @@ fn create_buffers(
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
     }));
 
+    let bias_gradient_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("Dense Layer Bias Gradient Buffer"),
+        mapped_at_creation: false,
+        size: num_nodes * std::mem::size_of::<f32>() as u64,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+    });
+
     (
         activation_function_buffer,
         intermediary_buffer,
@@ -327,6 +338,7 @@ fn create_buffers(
         regularization_output_buffer,
         gradient_buffer,
         gradient_intermediary_buffer,
+        bias_gradient_buffer,
         gradient_back_prop_buffer,
         dimensions_buffer,
         output_buffer,
@@ -411,6 +423,7 @@ impl DenseLayer {
             regularization_output_buffer,
             gradient_buffer,
             gradient_intermediary_buffer,
+            bias_gradient_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
             output_buffer,
@@ -469,6 +482,7 @@ impl DenseLayer {
             &gradient_buffer,
             &gradient_coefficient_buffer,
             learning_rate_buffer,
+            &bias_gradient_buffer,
         );
 
         // Create the pipeline from the bind group layout
@@ -549,6 +563,7 @@ impl DenseLayer {
             regularization_output_buffer,
             gradient_buffer,
             gradient_intermediary_buffer,
+            bias_gradient_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
             output_buffer,
@@ -598,6 +613,7 @@ impl DenseLayer {
             &gradient_buffer,
             &gradient_coefficient_buffer,
             learning_rate_buffer,
+            &bias_gradient_buffer,
         );
 
         // Create the pipeline from the bind group layout

@@ -5,11 +5,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Pod, Zeroable, Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct Bias {
     pub bias: f32,
-    pub weight: f32,
 }
 
 impl Bias {
-    pub fn new(bias: f32, weight: f32) -> Self {
-        Self { bias, weight }
+    pub fn new(bias: f32) -> Self {
+        Self { bias }
     }
 }

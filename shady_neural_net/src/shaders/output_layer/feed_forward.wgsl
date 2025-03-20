@@ -1,9 +1,3 @@
-// Custom Structs
-struct Bias {
-    bias: f32,
-    bias_weight: f32,
-}
-
 // Buffer of inputs from the previous layer
 @group(0) @binding(0)
 var<storage, read> input_buffer: array<f32>;
@@ -18,7 +12,7 @@ var<storage, read> weights_buffer: array<f32>;
 
 // This Layers Bias vector
 @group(1) @binding(2)
-var<storage, read> bias_buffer: array<Bias>;
+var<storage, read> bias_buffer: array<f32>;
 
 // Intermediary buffer for storing values before softmax
 @group(1) @binding(3)
@@ -56,7 +50,7 @@ fn output_layer_feed_forward_main(
         }
 
         // Add the biases to the output sum
-        sum += bias_buffer[row].bias * bias_buffer[row].bias_weight;
+        sum += bias_buffer[row];
 
         // store the sum in the intermediary buffer
         // to then compute the softmax
@@ -92,7 +86,13 @@ fn output_layer_feed_forward_main(
     workgroupBarrier();
 
     if (row < num_outputs) {
-        output_buffer[row] /= exp_sum;
+        intermediary_buffer[row] = output_buffer[row];
+    }
+    
+    workgroupBarrier();
+
+    if (row < num_outputs) {
+        output_buffer[row] = intermediary_buffer[row] / exp_sum;
     }
 
     workgroupBarrier();

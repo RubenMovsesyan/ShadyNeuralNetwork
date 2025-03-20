@@ -40,8 +40,6 @@ impl WeightDistribution {
                     .map(|_| Bias {
                         bias: lower_bound
                             + rand::random_range(0.0..=1.0) * (upper_bound - lower_bound),
-                        weight: lower_bound
-                            + rand::random_range(0.0..=1.0) * (upper_bound - lower_bound),
                     })
                     .collect()
             }

@@ -1,9 +1,4 @@
 // Custom Structs
-struct Bias {
-    bias: f32,
-    bias_weight: f32,
-}
-
 struct ActivationFunctionDescriptor {
     function_type: u32,
     function_parameter: f32,
@@ -32,7 +27,7 @@ var<storage, read> weights_buffer: array<f32>;
 
 // Biases of the current layer
 @group(1) @binding(2)
-var<storage, read> bias_buffer: array<Bias>;
+var<storage, read> bias_buffer: array<f32>;
 
 // Activation function information
 @group(1) @binding(3)
@@ -138,7 +133,7 @@ fn dense_layer_feed_forward_main(
         }
 
         // Add the bias to the sum buffer
-        sum += bias_buffer[row].bias * bias_buffer[row].bias_weight;
+        sum += bias_buffer[row];
 
         // Store the weighted sum in the intermediary buffer to
         // be used for back propogation before applying the

@@ -16,13 +16,13 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
     let mut neural_net = NeuralNet::new().expect("Could not initialize Neural Net");
     neural_net
         .add_input_layer(784)?
-        .add_dense_layer(16, ActivationFunction::ReLU)?
-        .add_dense_layer(16, ActivationFunction::ReLU)?
+        .add_dense_layer(10, ActivationFunction::ReLU)?
+        .add_dense_layer(10, ActivationFunction::ReLU)?
         .add_output_layer(10)?;
 
-    neural_net.set_learning_rate(0.0001);
+    neural_net.set_learning_rate(0.01);
     neural_net
-        .set_loss_function(LossFunction::LogLoss)
+        .set_loss_function(LossFunction::Diff)
         .expect("Could Not Set the loss function of the network");
 
     Ok(neural_net)
@@ -45,7 +45,7 @@ fn print_progress(progress: usize, total: usize) {
 #[allow(dead_code)]
 fn train() {
     let neural_net = create_neural_net().expect("Could not create neural net");
-    let passes = 60000;
+    let passes = 500;
 
     // TEMP
     let image_file = File::open("test_files/train_images").expect("R");
@@ -83,12 +83,12 @@ fn train() {
         let _vals = neural_net.feed_forward(&input).expect("C");
         let feed_forward_time = now.elapsed();
 
-        let now = Instant::now();
-        neural_net.set_loss(&v).expect("G");
-        let set_loss_time = now.elapsed();
-        let now = Instant::now();
+        // let now = Instant::now();
+        neural_net.compute_loss(&v).expect("G");
+        // let set_loss_time = now.elapsed();
+        // let now = Instant::now();
         neural_net.back_propogate();
-        let back_prop_time = now.elapsed();
+        // let back_prop_time = now.elapsed();
         // let now = Instant::now();
         // let cost_time = now.elapsed();
 
@@ -105,24 +105,23 @@ fn train() {
         let cost = neural_net.get_cost().expect("G");
         print_progress(i, passes);
         print!(" Cost: {:>8.4} ", cost);
-        print!(
-            "IR Time: {:>5}us FF Time: {:>5}us SL Time: {:>5}us BP Time: {:>5}us",
-            image_reading_time.as_micros(),
-            feed_forward_time.as_micros(),
-            set_loss_time.as_micros(),
-            back_prop_time.as_micros(),
-            // cost_time.as_micros(),
-        );
+        // print!(
+        //     "IR Time: {:>5}us FF Time: {:>5}us SL Time: {:>5}us BP Time: {:>5}us",
+        //     image_reading_time.as_micros(),
+        //     feed_forward_time.as_micros(),
+        //     set_loss_time.as_micros(),
+        //     back_prop_time.as_micros(),
+        // );
 
         _ = stdout().flush();
         // }
     }
 
-    // let cost = neural_net.get_cost().expect("G");
+    let cost = neural_net.get_cost().expect("G");
     _ = neural_net.save_model_to_file("test_files/nn_test.json");
 
     println!();
-    println!("Done!");
+    println!("Done! With Cost: {cost}");
 }
 
 #[allow(dead_code)]
