@@ -94,55 +94,55 @@ fn output_layer_back_propogate_main(
     let index = row * num_inputs + col;
 
     // Getting the regularization term of the back propogation equation
-    if (row < num_outputs && col < num_inputs) {
-        let weight = weights[index];
-        let lambda_1 = regularization_info.hyper_parameter_1;
-        let lambda_2 = regularization_info.hyper_parameter_2;
+    // if (row < num_outputs && col < num_inputs) {
+    //     let weight = weights[index];
+    //     let lambda_1 = regularization_info.hyper_parameter_1;
+    //     let lambda_2 = regularization_info.hyper_parameter_2;
 
-        // Get the regularization term here basd on the weights
-        switch regularization_info.function_type {
-            case LASSO: {
-                // Find the gradient of the l1 norm
-                var grad: f32 = 0.0;
+    //     // Get the regularization term here basd on the weights
+    //     switch regularization_info.function_type {
+    //         case LASSO: {
+    //             // Find the gradient of the l1 norm
+    //             var grad: f32 = 0.0;
 
-                if (weight > 0.0) {
-                    grad = 1.0;
-                } else if (weight < 0.0) {
-                    grad = -1.0;
-                }
+    //             if (weight > 0.0) {
+    //                 grad = 1.0;
+    //             } else if (weight < 0.0) {
+    //                 grad = -1.0;
+    //             }
 
-                regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
-            }
-            case RIDGE: {
-                if (frobenius_norm == 0.0) {
-                    regularization_output[index] = 0.0;
-                } else {
-                    regularization_output[index] = lambda_1 * (weight / frobenius_norm);
-                }
-            }
-            case ELASTIC_NET_REGRESSION: {
-                // Find the gradient of the L1 norm
-                var grad: f32 = 0.0;
+    //             regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
+    //         }
+    //         case RIDGE: {
+    //             if (frobenius_norm == 0.0) {
+    //                 regularization_output[index] = 0.0;
+    //             } else {
+    //                 regularization_output[index] = lambda_1 * (weight / frobenius_norm);
+    //             }
+    //         }
+    //         case ELASTIC_NET_REGRESSION: {
+    //             // Find the gradient of the L1 norm
+    //             var grad: f32 = 0.0;
 
-                if (weight > 0.0) {
-                    grad = 1.0;
-                } else if (weight < 0.0) {
-                    grad = -1.0;
-                }
+    //             if (weight > 0.0) {
+    //                 grad = 1.0;
+    //             } else if (weight < 0.0) {
+    //                 grad = -1.0;
+    //             }
 
-                if (frobenius_norm == 0.0) {
-                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
-                } else {
-                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
-                }
+    //             if (frobenius_norm == 0.0) {
+    //                 regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
+    //             } else {
+    //                 regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
+    //             }
 
-            }
-            default: {}
-        }
+    //         }
+    //         default: {}
+    //     }
 
-        // gradient[index] = calculate_gradient(index, row, col);
-        gradient[index] = calculate_gradient(row, col);
-    }
+    //     // gradient[index] = calculate_gradient(index, row, col);
+    //     gradient[index] = calculate_gradient(row, col);
+    // }
 
     workgroupBarrier();
 

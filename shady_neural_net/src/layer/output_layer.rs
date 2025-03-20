@@ -1010,8 +1010,8 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
         }
 
-        let loss = read_buffer(
-            &self.loss_function_buffer,
+        let output = read_buffer(
+            &self.output_buffer,
             self.num_outputs * std::mem::size_of::<f32>() as u64,
             device,
             &mut encoder,
@@ -1022,6 +1022,6 @@ impl BackPropogationLayer for OutputLayer {
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&loss, device, "Loss Function Output");
+        print_buffer(&output, device, "Output Buffer");
     }
 }

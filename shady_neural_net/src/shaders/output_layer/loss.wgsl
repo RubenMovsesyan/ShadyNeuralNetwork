@@ -64,6 +64,14 @@ fn binary_cross_entropy_loss(predicted: f32, expected: f32) -> f32 {
     return -1.0 * (part_1 + part_2);
 }
 
+fn log_loss(predicted: f32, expected: f32) -> f32 {
+    return -expected * log(predicted);
+}
+
+fn log_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return predicted - expected;
+}
+
 // Hinge Loss
 fn hinge_loss_gradient(predicted: f32, expected: f32) -> f32 {
     return 0.0;
@@ -147,8 +155,10 @@ fn output_layer_loss_main(
 
         switch loss_function_info {
             case LOG_LOSS: {
-                loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
-                gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
+                // loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
+                // gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
+                loss_function_buffer[row] = log_loss(predicted, expected);
+                gradient_coefficient[row] = log_loss_gradient(predicted, expected);
             }
             case HINGE_LOSS: {
                 loss_function_buffer[row] = hinge_loss(predicted, expected);

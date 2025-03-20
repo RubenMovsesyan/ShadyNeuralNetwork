@@ -43,10 +43,7 @@ def one_hot(y):
 def back_prop(Z1, A1, Z2, A2, W2, x, y):
     # m = y.size
     one_hot_y = one_hot(y)
-    print('one_hot_y shape', one_hot_y.shape)
     dZ2 = A2 - one_hot_y
-    print('dZ2 shape', dZ2.shape)
-    print('A1 shape', A1.T.shape)
     dW2 = 1 / m * dZ2.dot(A1.T)
     db2 = 1 / m * np.sum(dZ2)
 

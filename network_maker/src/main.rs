@@ -1,13 +1,11 @@
 use std::io::{Write, stdout};
 use std::os::unix::fs::FileExt;
-use std::time::Instant;
 
 use activation::ActivationFunction;
 #[allow(unused_imports)]
 use log::*;
 use loss::LossFunction;
 
-use data_generator::*;
 use shady_neural_net::*;
 
 use std::fs::File;
@@ -20,9 +18,9 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
         .add_dense_layer(10, ActivationFunction::ReLU)?
         .add_output_layer(10)?;
 
-    neural_net.set_learning_rate(0.01);
+    neural_net.set_learning_rate(0.001);
     neural_net
-        .set_loss_function(LossFunction::Diff)
+        .set_loss_function(LossFunction::LogLoss)
         .expect("Could Not Set the loss function of the network");
 
     Ok(neural_net)
@@ -56,12 +54,6 @@ fn train() {
     let mut v = vec![0.0; 10];
 
     for i in 0..passes {
-        // let rand_x = rand::random_range(0.0..=1.0);
-        // let rand_y = rand::random_range(0.0..=1.0);
-
-        // let expected = generate_x_y_function(rand_x, rand_y);
-
-        let now = Instant::now();
         image_file
             .read_exact_at(&mut image_buffer, 784 * i as u64)
             .expect("F");
@@ -77,44 +69,15 @@ fn train() {
             .iter()
             .map(|value| *value as f32)
             .collect::<Vec<f32>>();
-        let image_reading_time = now.elapsed();
+        _ = neural_net.feed_forward(&input).expect("C");
 
-        let now = Instant::now();
-        let _vals = neural_net.feed_forward(&input).expect("C");
-        let feed_forward_time = now.elapsed();
-
-        // let now = Instant::now();
         neural_net.compute_loss(&v).expect("G");
-        // let set_loss_time = now.elapsed();
-        // let now = Instant::now();
         neural_net.back_propogate();
-        // let back_prop_time = now.elapsed();
-        // let now = Instant::now();
-        // let cost_time = now.elapsed();
-
-        // if cost.is_nan() {
-        //     println!("Failed");
-        //     break;
-        // }
-
-        // _ = stdout().flush();
-
-        // neural_net.set_learning_rate((cost * 0.01).min(0.1));
-
-        // if i % 1000 == 0 {
         let cost = neural_net.get_cost().expect("G");
         print_progress(i, passes);
         print!(" Cost: {:>8.4} ", cost);
-        // print!(
-        //     "IR Time: {:>5}us FF Time: {:>5}us SL Time: {:>5}us BP Time: {:>5}us",
-        //     image_reading_time.as_micros(),
-        //     feed_forward_time.as_micros(),
-        //     set_loss_time.as_micros(),
-        //     back_prop_time.as_micros(),
-        // );
 
         _ = stdout().flush();
-        // }
     }
 
     let cost = neural_net.get_cost().expect("G");
@@ -129,28 +92,37 @@ fn test() {
     let mut neural_net = NeuralNet::load_model_from_file("test_files/nn_test.json").expect("F");
     neural_net.set_loss_function(LossFunction::MSE).expect("G");
 
-    for _ in 0..100 {
+    let image_file = File::open("test_files/train_images").expect("R");
+    let mut image_buffer = vec![0; 784];
+
+    let label_file = File::open("test_files/train_labels").expect("R");
+    let mut label_buffer = vec![0];
+    let mut v = vec![0.0; 10];
+
+    for i in 1000..1500 {
         let rand_x = rand::random_range(-1.0..=1.0);
         let rand_y = rand::random_range(-1.0..=1.0);
 
-        let expected = generate_x_y_function(rand_x, rand_y);
+        image_file
+            .read_exact_at(&mut image_buffer, 784 * i as u64)
+            .expect("F");
+        label_file
+            .read_exact_at(&mut label_buffer, i as u64)
+            .expect("F");
 
-        _ = neural_net.feed_forward(&vec![rand_x, rand_y]);
+        v[..].fill(0.0);
+
+        v[label_buffer[0] as usize] = 1.0;
+
+        let input = image_buffer
+            .iter()
+            .map(|value| *value as f32)
+            .collect::<Vec<f32>>();
+
+        _ = neural_net.feed_forward(&input);
         let vals = neural_net.get_output();
 
-        let cost = {
-            let diffs = vals
-                .iter()
-                .zip(expected.iter())
-                .map(|(val, expected)| val - expected)
-                .collect::<Vec<f32>>();
-            diffs.iter().sum::<f32>() / diffs.len() as f32
-        };
-
-        println!(
-            "Vals: {:#?}\nExpected: {:#?}\n Cost: {}",
-            vals, expected, cost,
-        );
+        println!("{:#?} {:#?}", vals, v);
     }
 }
 
