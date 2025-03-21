@@ -5,16 +5,13 @@ use std::rc::Rc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 // WGPU imports
 use wgpu::{
-    BindGroup, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
-    Buffer, BufferBindingType, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
+    BindGroup, BindGroupLayout, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device, Maintain,
-    PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, ShaderStages, include_wgsl,
+    PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, include_wgsl,
 };
 
 use crate::create_buffer_bind_group;
-use crate::gpu_utils::{
-    WORK_GROUP_SIZE_2D, compute_workgroup_size_2d, get_buffer, print_buffer, read_buffer,
-};
+use crate::gpu_utils::{WORK_GROUP_SIZE_2D, compute_workgroup_size_2d, get_buffer, read_buffer};
 
 use super::math_errors::MatrixDotError;
 
@@ -41,6 +38,7 @@ struct GPUMatrix {
 }
 
 impl GPUMatrix {
+    // Function to create the GPU Matrix witha defined shape
     fn with_shape(capacity: (u64, u64), device: Rc<Device>, queue: Rc<Queue>) -> Self {
         let new_rows = capacity.0;
         let new_cols = capacity.1;
@@ -113,6 +111,7 @@ impl GPUMatrix {
         }
     }
 
+    // Creates a GPU matrix from a data buffer
     fn from_data(
         rows: usize,
         cols: usize,
@@ -190,6 +189,7 @@ impl GPUMatrix {
         }
     }
 
+    // Gets the writable version of the buffer bind group
     fn get_writable_bind_group(&self, device: &Device) -> BindGroup {
         let (_, dot_bind_group) = create_buffer_bind_group!(
             &device,
@@ -202,6 +202,12 @@ impl GPUMatrix {
     }
 }
 
+/// Matrix that can have a defined shape on the gpu or the cpu
+///
+/// # Variants
+///
+/// * `CPU` - CPU stored and computed matrix
+/// * `GPU` - GPU stored and computed matrix
 #[derive(Debug)]
 pub enum Matrix {
     CPU(CPUMatrix),
@@ -209,6 +215,15 @@ pub enum Matrix {
 }
 
 impl Matrix {
+    /// Creates a matrix filled with zeros with a defined shape
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - tuple defining the shape of the matrix in terms of rows and columns
+    ///
+    /// # Returns
+    ///
+    /// `Matrix::CPU` of shape `capacity` filled with zeros
     pub fn with_shape(capacity: (usize, usize)) -> Self {
         let rows = capacity.0;
         let cols = capacity.1;
@@ -218,6 +233,15 @@ impl Matrix {
         Matrix::CPU(CPUMatrix { rows, cols, data })
     }
 
+    /// Creates a matrix filled with random numbers from 0 to 1 with a defined shape
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - tuple defining the shape of the matrix in terms of rows and columns
+    ///
+    /// # Returns
+    ///
+    /// `Matrix::CPU` of shape `capacity` filled with random numbers
     pub fn rand_with_shape(capacity: (usize, usize)) -> Self {
         let rows = capacity.0;
         let cols = capacity.1;
@@ -230,6 +254,11 @@ impl Matrix {
         Matrix::CPU(CPUMatrix { rows, cols, data })
     }
 
+    /// Gets the number of rows in the matrix
+    ///
+    /// # Returns
+    ///
+    /// The number of rows in the matrix
     pub fn rows(&self) -> usize {
         match self {
             Matrix::CPU(cpu_matrix) => cpu_matrix.rows,
@@ -237,6 +266,11 @@ impl Matrix {
         }
     }
 
+    /// Gets the number of columns in the matrix
+    ///
+    /// # Returns
+    ///
+    /// The number of columns in the matrix
     pub fn cols(&self) -> usize {
         match self {
             Matrix::CPU(cpu_matrix) => cpu_matrix.cols,
@@ -244,6 +278,16 @@ impl Matrix {
         }
     }
 
+    /// Consumes the `Matrix::CPU` and converts it into a `Matrix::GPU`
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - WGPU device to use for matrix operations
+    /// * `queue` - WGPU queue to use for matrix operations
+    ///
+    /// # Returns
+    ///
+    /// `Matrix::GPU` with the data moved from self
     pub fn buf(self, device: Rc<Device>, queue: Rc<Queue>) -> Self {
         match self {
             Matrix::CPU(CPUMatrix { rows, cols, data }) => {
@@ -253,6 +297,11 @@ impl Matrix {
         }
     }
 
+    /// Consumes the `Matrix::GPU` and converts it to a `Matrix::CPU`
+    ///
+    /// # Returns
+    ///
+    /// `Matrix::CPU` with the data from self
     pub fn debuf(self) -> Self {
         match self {
             Matrix::GPU(GPUMatrix {
@@ -290,6 +339,17 @@ impl Matrix {
         }
     }
 
+    /// Performs the dot product with the matrix described in `other`
+    /// If the matrix is a `Matrix::CPU` it will do a sequential computation
+    /// If the matrix is a `Matrix::GPU` it will do a parallel computation
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - reference to another matrix to do the dot product with
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the dot product was successful and `Err` if the dot product failed
     pub fn dot(&self, other: &Matrix) -> Result<Matrix, MatrixDotError> {
         match self {
             Matrix::CPU(CPUMatrix { rows, cols, data }) => {
@@ -326,24 +386,18 @@ impl Matrix {
             }
             Matrix::GPU(GPUMatrix {
                 rows,
-                cols,
-                data,
-                dimensions,
                 device,
                 queue,
-                dot_bind_group_layout: _,
                 dot_bind_group,
                 dot_pipeline,
+                ..
             }) => {
-                let (b_rows, b_cols, b_data, b_dimensions, b_dot_bind_group) = match other {
+                let (b_cols, b_dot_bind_group) = match other {
                     Matrix::GPU(GPUMatrix {
-                        rows,
                         cols,
-                        data,
-                        dimensions,
                         dot_bind_group,
                         ..
-                    }) => (rows, cols, data, dimensions, dot_bind_group),
+                    }) => (cols, dot_bind_group),
                     _ => return Err(MatrixDotError(String::from("Matrix Variants do not match"))),
                 };
 
@@ -495,7 +549,7 @@ mod tests {
 
     use super::*;
 
-    // #[test]
+    #[test]
     fn test_rand_with_shape() {
         let mat = Matrix::rand_with_shape((10, 5));
 
@@ -503,7 +557,7 @@ mod tests {
         assert!(true);
     }
 
-    // #[test]
+    #[test]
     fn test_setting_values() {
         let mut mat = Matrix::with_shape((10, 10));
 
@@ -524,7 +578,7 @@ mod tests {
         assert!(true);
     }
 
-    // #[test]
+    #[test]
     fn test_matrix_dot() {
         let mut mat1 = Matrix::with_shape((3, 4));
         let mut mat2 = Matrix::with_shape((4, 2));
