@@ -253,6 +253,43 @@ impl Matrix {
         }
     }
 
+    pub fn debuf(self) -> Self {
+        match self {
+            Matrix::GPU(GPUMatrix {
+                rows,
+                cols,
+                data,
+                device,
+                queue,
+                ..
+            }) => {
+                let values = {
+                    let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                        label: Some("Matrix Debuf encoder"),
+                    });
+
+                    let values_buffer = read_buffer(
+                        &data,
+                        rows * cols * std::mem::size_of::<f32>() as u64,
+                        &device,
+                        &mut encoder,
+                    );
+
+                    queue.submit(Some(encoder.finish()));
+
+                    get_buffer(&values_buffer, &device)
+                };
+
+                Matrix::CPU(CPUMatrix {
+                    rows: rows as usize,
+                    cols: cols as usize,
+                    data: values,
+                })
+            }
+            Matrix::CPU(_) => self,
+        }
+    }
+
     pub fn dot(&self, other: &Matrix) -> Result<Matrix, MatrixDotError> {
         match self {
             Matrix::CPU(CPUMatrix { rows, cols, data }) => {
@@ -579,12 +616,15 @@ mod tests {
         mat1 = mat1.buf(device.clone(), queue.clone());
         mat2 = mat2.buf(device.clone(), queue.clone());
 
+        let mut output = mat1.dot(&mat2).expect("Failed to compute dot product");
+
         println!("A: {}", mat1);
         println!("B: {}", mat2);
-        println!(
-            "Result: {}",
-            mat1.dot(&mat2).expect("Failed to compute dot product")
-        );
+        println!("Result: {}", output);
+
+        output = output.debuf();
+
+        println!("Result Debuf: {}", output);
 
         assert!(true);
     }
