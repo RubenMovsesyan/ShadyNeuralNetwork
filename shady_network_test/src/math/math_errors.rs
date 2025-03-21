@@ -13,3 +13,14 @@ impl Display for MatrixDotError {
         write!(f, "{}", self.0)
     }
 }
+
+#[derive(Debug)]
+pub struct MatrixAddError(pub String);
+
+impl Error for MatrixAddError {}
+
+impl Display for MatrixAddError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}

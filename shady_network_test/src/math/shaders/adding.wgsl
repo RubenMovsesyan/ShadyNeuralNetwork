@@ -1,4 +1,4 @@
-// X = AB
+// X = A + B
 
 // Matirx A ------------------------------------
 // Buffer of the A matrix
@@ -40,7 +40,7 @@ var<uniform> output_dimensions: vec2<u32>;
 var<uniform> x_transpose: u32;
 
 @compute @workgroup_size(16, 16)
-fn dot_main(
+fn add_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
@@ -55,12 +55,24 @@ fn dot_main(
     let output_rows = output_dimensions.x;
     let output_cols = output_dimensions.y;
 
-    let dot_size = a_cols;
-
     if (row < output_rows && col < output_cols) {
-        var sum: f32 = 0.0;
-        // let output_index = row * output_cols + col;
+        // let index = row * output_cols + col;
+
+        var a_index: u32 = 0;
+        var b_index: u32 = 0;
         var x_index: u32 = 0;
+
+        if (a_transpose == 1) {
+            a_index = row + a_rows * col;
+        } else {
+            a_index = row * a_cols + col;
+        }
+
+        if (b_transpose == 1) {
+            b_index = row + b_rows * col;
+        } else {
+            b_index = row * b_cols + col;
+        }
 
         if (x_transpose == 1) {
             x_index = row + output_rows * col;
@@ -68,30 +80,7 @@ fn dot_main(
             x_index = row * output_cols + col;
         }
 
-
-        for (var k: u32 = 0; k < dot_size; k++) {
-            // let a_index = row * a_cols + k;
-            // let b_index = k * b_cols + col;
-            var a_index: u32 = 0;
-            var b_index: u32 = 0;
-
-            if (a_transpose == 1) {
-                a_index = row + a_rows * k;
-            } else {
-                a_index = k * a_cols + col;
-            }
-
-            if (b_transpose == 1) {
-                b_index = row + b_rows * k;
-            } else {
-                b_index = k * b_cols + col;
-            }
-
-
-            sum += matrix_a[a_index] * matrix_b[b_index];
-        }
-
-        matrix_x[x_index] = sum;
+        matrix_x[x_index] = matrix_a[a_index] + matrix_b[b_index];
     }
 
     workgroupBarrier();
