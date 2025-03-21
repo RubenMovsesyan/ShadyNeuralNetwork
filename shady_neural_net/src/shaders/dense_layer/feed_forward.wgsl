@@ -116,7 +116,7 @@ fn dense_layer_feed_forward_main(
     // Num Inputs
     let num_inputs = dims.y;
 
-    if (row < num_inputs) {
+    if (row < num_outputs) {
         // Matrix multiplication of the weights matrix to the input buffer
         var sum: f32 = 0.0;
         for (var k: u32 = 0; k < num_inputs; k++) {

@@ -18,7 +18,7 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
         .add_dense_layer(10, ActivationFunction::ReLU)?
         .add_output_layer(10)?;
 
-    neural_net.set_learning_rate(0.001);
+    neural_net.set_learning_rate(0.1);
     neural_net
         .set_loss_function(LossFunction::LogLoss)
         .expect("Could Not Set the loss function of the network");
@@ -27,7 +27,7 @@ fn create_neural_net() -> Result<NeuralNet, Box<dyn std::error::Error>> {
 }
 
 fn print_progress(progress: usize, total: usize) {
-    let bar_size = 20;
+    let bar_size = 50;
     let ratio = progress as f32 / total as f32;
     let amount = (bar_size as f32 * ratio) as usize;
     print!("\r[");
@@ -40,10 +40,20 @@ fn print_progress(progress: usize, total: usize) {
     print!("]");
 }
 
+fn get_accuracy(prediction: &Vec<f32>, expected: &Vec<f32>) -> f32 {
+    println!("\nPred: {:#?} Exp: {:#?}", prediction, expected);
+    prediction
+        .iter()
+        .zip(expected.iter())
+        .map(|(pred, exp)| pred - exp)
+        .sum::<f32>()
+        / expected.len() as f32
+}
+
 #[allow(dead_code)]
 fn train() {
     let neural_net = create_neural_net().expect("Could not create neural net");
-    let passes = 500;
+    let passes = 5000;
 
     // TEMP
     let image_file = File::open("test_files/train_images").expect("R");
@@ -67,15 +77,15 @@ fn train() {
 
         let input = image_buffer
             .iter()
-            .map(|value| *value as f32)
+            .map(|value| (*value as f32) / 255.0)
             .collect::<Vec<f32>>();
         _ = neural_net.feed_forward(&input).expect("C");
 
         neural_net.compute_loss(&v).expect("G");
         neural_net.back_propogate();
-        let cost = neural_net.get_cost().expect("G");
+        let predictions = neural_net.get_output();
         print_progress(i, passes);
-        print!(" Cost: {:>8.4} ", cost);
+        print!(" Accuracy {:>5.2}", get_accuracy(&predictions, &v));
 
         _ = stdout().flush();
     }
@@ -100,9 +110,6 @@ fn test() {
     let mut v = vec![0.0; 10];
 
     for i in 1000..1500 {
-        let rand_x = rand::random_range(-1.0..=1.0);
-        let rand_y = rand::random_range(-1.0..=1.0);
-
         image_file
             .read_exact_at(&mut image_buffer, 784 * i as u64)
             .expect("F");

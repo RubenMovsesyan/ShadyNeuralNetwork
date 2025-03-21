@@ -88,81 +88,10 @@ fn dense_layer_back_propogation_main(
     let index = row * num_inputs + col;
 
     if (row < num_outputs && col < num_inputs) {
-        let weight = weights[index];
-        let lambda_1 = regularization_info.hyper_parameter_1;
-        let lambda_2 = regularization_info.hyper_parameter_2;
-
-        // Get the regularization term here based on the weights
-        switch regularization_info.function_type {
-            case LASSO: {
-                // Find the gradiend of the l1 norm
-                var grad: f32 = 0.0;
-
-                if (weight > 0.0) {
-                    grad = 1.0;
-                } else if (weight < 0.0) {
-                    grad = -1.0;
-                }
-
-                regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
-            }
-            case RIDGE: {
-                if (frobenius_norm == 0.0) {
-                    regularization_output[index] = 0.0;
-                } else {
-                    regularization_output[index] = lambda_1 * (weight / frobenius_norm);
-                }
-            }
-            case ELASTIC_NET_REGRESSION: {
-                // Find the gradient of the L1 norm
-                var grad: f32 = 0.0;
-
-                if (weight > 0.0) {
-                    grad = 1.0;
-                } else if (weight < 0.0) {
-                    grad = -1.0;
-                }
-
-                if (frobenius_norm == 0.0) {
-                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight;
-                } else {
-                    regularization_output[index] = lambda_1 * grad * l_1_norm * weight + lambda_2 * (weight / frobenius_norm);
-                }
-            }
-            default: {}
-        }
-
-        // gradient[index] = calculate_gradient(index, row, col);
         gradient[index] = calculate_gradient(row, col);
     }
 
     workgroupBarrier();
-
-
-    // normalize the gradient
-    // TODO: This can be optimized to use a parallel reduction algirithm
-    // var sum = 0.0;
-    // if (row < num_outputs && col < num_inputs) {
-    //     // Compute the L2 Norm of the gradient
-    //     for (var i: u32 = 0; i < num_inputs; i++) {
-    //         for (var j: u32 = 0; j < num_outputs; j++) {
-    //             let new_index = j * num_inputs + i;
-    //             sum += pow(gradient[new_index], 2.0);
-    //         }
-    //     }
-
-    //     sum = sqrt(sum);
-    // }
-
-    // workgroupBarrier();
-
-    // if (row < num_outputs && col < num_inputs) {
-    //     if (sum > 5.0) { // Tau
-    //         gradient[index] /= sum;
-    //     }
-    // }
-
-    // workgroupBarrier();
 
     if (row < num_outputs && col < num_inputs) {
         weights[index] = weights[index] - (learning_rate * gradient[index]);

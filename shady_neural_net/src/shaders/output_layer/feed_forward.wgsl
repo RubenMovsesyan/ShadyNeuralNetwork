@@ -37,10 +37,10 @@ fn output_layer_feed_forward_main(
         // input vector
         var sum: f32 = 0.0;
         for (var k: u32 = 0; k < num_inputs; k++) {
-            //          [x] 
-            //          [y] 
-            //          [z] 
-            //          [w] 
+            //          [x]
+            //          [y]
+            //          [z]
+            //          [w]
             // [1 2 3 4]
             // [a b c d]
             // [a b c d]
@@ -63,7 +63,7 @@ fn output_layer_feed_forward_main(
     // Compute the softmax of the output
     if (row < num_outputs) {
         var max_val: f32 = intermediary_buffer[0];
-        for (var i: u32 = 0; i < num_outputs; i++) {
+        for (var i: u32 = 1; i < num_outputs; i++) {
             max_val = max(max_val, intermediary_buffer[i]);
         }
 
@@ -86,13 +86,7 @@ fn output_layer_feed_forward_main(
     workgroupBarrier();
 
     if (row < num_outputs) {
-        intermediary_buffer[row] = output_buffer[row];
-    }
-    
-    workgroupBarrier();
-
-    if (row < num_outputs) {
-        output_buffer[row] = intermediary_buffer[row] / exp_sum;
+        output_buffer[row] /= exp_sum;
     }
 
     workgroupBarrier();

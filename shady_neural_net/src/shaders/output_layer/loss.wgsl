@@ -149,14 +149,9 @@ fn output_layer_loss_main(
     if (row < num_outputs) {
         let predicted = output[row];
         let expected = expected_values_buffer[row];
-        // This is the derivative of the loss function
-        // This is the first level of the gradient coefficient
-        // dJ/do_N
 
         switch loss_function_info {
             case LOG_LOSS: {
-                // loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
-                // gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
                 loss_function_buffer[row] = log_loss(predicted, expected);
                 gradient_coefficient[row] = log_loss_gradient(predicted, expected);
             }
@@ -184,12 +179,6 @@ fn output_layer_loss_main(
                 loss_function_buffer[row] = quantile_loss(predicted, expected);
                 gradient_coefficient[row] = quantile_loss_gradient(predicted, expected);
             }
-            case DIFF: {
-                // dZ
-                loss_function_buffer[row] = diff_loss(predicted, expected);
-                // gradient_coefficient[row] = diff_loss_gradient(predicted, expected);
-                gradient_coefficient[row] = diff_loss(predicted, expected);
-            }
             default: {}
         }
         
@@ -205,7 +194,8 @@ fn output_layer_loss_main(
         // [ x y z ] <- this is the current coefficient
         var sum: f32 = 0.0;
         for (var k: u32 = 0; k < num_outputs; k++) {
-            let index = row * num_outputs + k;
+            // let index = row * num_outputs + k;
+            let index = k * num_inputs + row;
             sum += weights[index] * gradient_coefficient[k];
         }
 

@@ -177,7 +177,8 @@ fn dense_layer_coefficient_main(
         // [ x y z w ] <- this is the current coefficient
         var sum: f32 = 0.0;
         for (var k: u32 = 0; k < num_outputs; k++) {
-            let index = row * num_outputs + k;
+            // let index = row * num_outputs + k;
+            let index = k * num_inputs + row;
             sum += weights[index] * gradient_coefficient[k];
         }
 

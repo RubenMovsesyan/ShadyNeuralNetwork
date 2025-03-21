@@ -4,7 +4,6 @@ use crate::create_buffer_bind_group;
 use crate::layer::compute_2d_workgroup_size;
 use crate::layer_structs::loss::*;
 use crate::layer_structs::regularization::*;
-use crate::utils::print_buffer;
 use crate::utils::{get_buffer, read_buffer};
 
 use super::weight_distribution::WeightDistribution;
@@ -952,6 +951,13 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        // let back_prop = read_buffer(
+        //     &self.gradient_back_prop_buffer,
+        //     self.num_inputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
         encoder.insert_debug_marker("Sync Point: Output Loss Pipeline Complete");
         device.poll(Maintain::Wait);
 
@@ -1010,18 +1016,11 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
         }
 
-        let output = read_buffer(
-            &self.output_buffer,
-            self.num_outputs * std::mem::size_of::<f32>() as u64,
-            device,
-            &mut encoder,
-        );
-
         encoder.insert_debug_marker("Sync Point: Output Back Prop Pipeline Finished");
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
 
-        print_buffer(&output, device, "Output Buffer");
+        // print_buffer(&back_prop, device, "Output Layer Gradient Coeff: ");
     }
 }
