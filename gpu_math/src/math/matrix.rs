@@ -7,7 +7,8 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
     BindGroup, Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor,
     ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor, Device, Maintain,
-    PipelineCompilationOptions, PipelineLayoutDescriptor, Queue, include_wgsl,
+    PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, Queue,
+    ShaderModuleDescriptor, include_wgsl,
 };
 
 use crate::create_buffer_bind_group;
@@ -17,7 +18,8 @@ use crate::gpu_utils::{
 };
 
 use super::math_errors::{
-    MatrixAddError, MatrixDotError, MatrixExpError, MatrixMultError, MatrixSubError, MatrixSumError,
+    MatrixAddError, MatrixCustomError, MatrixDotError, MatrixExpError, MatrixMultError,
+    MatrixSubError, MatrixSumError,
 };
 
 #[derive(Debug, Clone)]
@@ -65,6 +67,13 @@ struct GPUMatrix {
 
     // Summing all elements
     sum_pipeline: ComputePipeline,
+
+    // Custom Pipelines
+    custom_pipelines: Vec<ComputePipeline>,
+
+    // Layouts for adding custom pipelines
+    multi_op_pipeline_layout: PipelineLayout,
+    single_op_pipeline_layout: PipelineLayout,
 
     // WGPU variables
     device: Rc<Device>,
@@ -286,6 +295,9 @@ impl GPUMatrix {
             mult_pipeline,
             exp_pipeline,
             sum_pipeline,
+            custom_pipelines: Vec::new(),
+            multi_op_pipeline_layout: pipeline_layout,
+            single_op_pipeline_layout,
         }
     }
 }
@@ -1001,6 +1013,121 @@ impl Matrix {
                 gpu_matrix.cols = new_cols;
 
                 Matrix::GPU(gpu_matrix)
+            }
+        }
+    }
+
+    /// Adds a custom single op shader described in `shader_module_descriptor`
+    /// The entry point for this pipeline will always be "op_main"
+    /// The bind groups consist of
+    /// (0, 0, this matrix buffer, readable array<f32>)
+    /// (0, 1, this matrix dimensions, uniform vec2<u32>)
+    /// (0, 2, this matrix transpose, uniform u32)
+    /// (1, 0, output matrix buffer, writable array<f32>)
+    /// (1, 1, output matrix dimensions, uniform vec2<u32>)
+    /// (1, 2, output matrix transpose, uniform u32)
+    ///
+    /// # Arguments
+    ///
+    /// * `shader_module_descriptor` - custom shader module to add
+    ///
+    /// # Returns
+    ///
+    /// `Option<usize>` of the index of the operation to be called when needed, None if it is a CPU matrix
+    pub fn add_custom_single_op_pipeline(
+        &mut self,
+        shader_module_descriptor: ShaderModuleDescriptor,
+    ) -> Option<usize> {
+        match self {
+            Matrix::CPU(_) => None,
+            Matrix::GPU(gpu_matrix) => {
+                let shader = gpu_matrix
+                    .device
+                    .create_shader_module(shader_module_descriptor);
+
+                gpu_matrix
+                    .custom_pipelines
+                    .push(
+                        gpu_matrix
+                            .device
+                            .create_compute_pipeline(&ComputePipelineDescriptor {
+                                label: Some(""),
+                                module: &shader,
+                                layout: Some(&gpu_matrix.single_op_pipeline_layout),
+                                entry_point: Some("op_main"),
+                                cache: None,
+                                compilation_options: PipelineCompilationOptions::default(),
+                            }),
+                    );
+
+                Some(gpu_matrix.custom_pipelines.len() - 1)
+            }
+        }
+    }
+
+    /// Runs the custom single op pipeline at the index described by `index`
+    ///
+    /// # Arguments
+    ///
+    /// `index` - index of the custome pipeline that was added
+    ///
+    /// # Returns
+    ///
+    /// `Result` with a `Matrix` if the operation was successful or `MatrixCustomError` if not
+    pub fn run_custom_single_op_pipeline(&self, index: usize) -> Result<Matrix, MatrixCustomError> {
+        match self {
+            Matrix::CPU(_) => Err(MatrixCustomError(String::from(
+                "Matrix is not a GPU Matrix",
+            ))),
+            Matrix::GPU(gpu_matrix) => {
+                if index >= gpu_matrix.custom_pipelines.len() {
+                    return Err(MatrixCustomError(String::from(
+                        "Pipeline Index Out of Range",
+                    )));
+                }
+
+                let output = GPUMatrix::with_shape(
+                    (gpu_matrix.rows, gpu_matrix.cols),
+                    None,
+                    false,
+                    gpu_matrix.device.clone(),
+                    gpu_matrix.queue.clone(),
+                );
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Custom Command Encoder"),
+                        });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Custom Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.custom_pipelines[index]);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.bind_group, &[]);
+                    compute_pass.set_bind_group(1, &output.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(Matrix::GPU(output))
             }
         }
     }
@@ -1942,5 +2069,58 @@ mod tests {
         );
 
         assert!(true);
+    }
+
+    #[test]
+    fn test_custom_pipeline() {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Device and Queue"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = (Rc::new(device), Rc::new(queue));
+
+        let mut mat = Matrix::with_shape((10, 10));
+
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                let value = (i * mat.cols() + j) as f32 - ((mat.rows() * mat.cols()) as f32 / 2.0);
+                mat[(i, j)] = value;
+            }
+        }
+
+        mat = mat.buf(device.clone(), queue.clone());
+        let index = mat
+            .add_custom_single_op_pipeline(include_wgsl!("shaders/relu.wgsl"))
+            .expect("Failed to Add Pipeline");
+
+        println!("Before Compute: {}", mat);
+        println!(
+            "After Compute: {}",
+            mat.run_custom_single_op_pipeline(index)
+                .expect("Failed to Run Custom Compute")
+        );
     }
 }

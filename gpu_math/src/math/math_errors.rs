@@ -68,3 +68,14 @@ impl Display for MatrixSumError {
         write!(f, "{}", self.0)
     }
 }
+
+#[derive(Debug)]
+pub struct MatrixCustomError(pub String);
+
+impl Error for MatrixCustomError {}
+
+impl Display for MatrixCustomError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
