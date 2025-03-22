@@ -13,9 +13,9 @@ use wgpu::{
 use crate::create_buffer_bind_group;
 use crate::gpu_utils::{WORK_GROUP_SIZE_2D, compute_workgroup_size_2d, get_buffer, read_buffer};
 
-use super::math_errors::{MatrixAddError, MatrixDotError};
+use super::math_errors::{MatrixAddError, MatrixDotError, MatrixMultError};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CPUMatrix {
     rows: usize,
     cols: usize,
@@ -33,6 +33,9 @@ struct GPUMatrix {
     // Uniform to keep track of transpose
     transpose_buffer: Buffer,
 
+    // Uniform for scalar multiplications
+    scalar_buffer: Buffer,
+
     // Bind Group Information for matrix operations
     bind_group: BindGroup,
     writable_bind_group: BindGroup,
@@ -42,6 +45,9 @@ struct GPUMatrix {
 
     // Adding
     add_pipeline: ComputePipeline,
+
+    // Multiplying
+    mult_pipeline: ComputePipeline,
 
     // WGPU variables
     device: Rc<Device>,
@@ -94,13 +100,22 @@ impl GPUMatrix {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
         });
 
+        // Create a buffer for multiplying scalars with
+        let scalar_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Matirx Scalar Buffer"),
+            mapped_at_creation: false,
+            size: std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
         // Create bind groups
         let (bind_group_layout, bind_group) = create_buffer_bind_group!(
             &device,
-            "Dot Bind Group",
+            "Bind Group",
             (0, &buffer, Bbt::Storage { read_only: true }),
             (1, &dimensions, Bbt::Uniform),
-            (2, &transpose, Bbt::Uniform)
+            (2, &transpose, Bbt::Uniform),
+            (3, &scalar_buffer, Bbt::Uniform)
         );
 
         // Create a writaboe bind group layout for matrix operations
@@ -151,10 +166,31 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for multiplying by scalar
+        let mult_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/mult.wgsl"));
+
+            let mult_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Mult Pipeline Layout"),
+                bind_group_layouts: &[&bind_group_layout, &writable_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Mult Compute Pipeline"),
+                module: &shader,
+                layout: Some(&mult_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("mult_main"),
+            })
+        };
+
         GPUMatrix {
             rows: new_rows,
             cols: new_cols,
             data: buffer,
+            scalar_buffer,
             transpose: transposed,
             transpose_buffer: transpose,
             device,
@@ -163,6 +199,7 @@ impl GPUMatrix {
             writable_bind_group,
             dot_pipeline,
             add_pipeline,
+            mult_pipeline,
         }
     }
 }
@@ -547,6 +584,81 @@ impl Matrix {
         }
     }
 
+    /// Performs a scalar multiplicaiton on the matrix and returns a new matrix as the result
+    ///
+    /// # Arguments
+    ///
+    /// * `scalar` - scalar value to multiply matrix by
+    ///
+    /// # Returns
+    ///
+    /// `Matrix` that has been multiplied by the value that has been specified
+    pub fn mult(self, scalar: f32) -> Result<Matrix, MatrixMultError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                let mut output = cpu_matrix.clone();
+                output.data.iter_mut().for_each(|value| *value *= scalar);
+
+                Ok(Matrix::CPU(output))
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let output = GPUMatrix::with_shape(
+                    (gpu_matrix.rows, gpu_matrix.cols),
+                    None,
+                    gpu_matrix.transpose,
+                    gpu_matrix.device.clone(),
+                    gpu_matrix.queue.clone(),
+                );
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Mult Command Encoder"),
+                        });
+
+                gpu_matrix.queue.write_buffer(
+                    &gpu_matrix.scalar_buffer,
+                    0,
+                    bytemuck::cast_slice(&[scalar]),
+                );
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Mult Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.mult_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.bind_group, &[]);
+                    compute_pass.set_bind_group(1, &output.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
+    /// Consumes the matrix and returns a transposed version
+    ///
+    /// # Returns
+    ///
+    /// A transposed version of the current matrix
     pub fn transpose(self) -> Self {
         match self {
             Matrix::CPU(CPUMatrix {
@@ -564,40 +676,20 @@ impl Matrix {
                     transpose: !transpose,
                 })
             }
-            Matrix::GPU(GPUMatrix {
-                rows,
-                cols,
-                data,
-                transpose,
-                transpose_buffer,
-                device,
-                queue,
-                bind_group,
-                writable_bind_group,
-                add_pipeline,
-                dot_pipeline,
-            }) => {
-                let (new_rows, new_cols) = (cols, rows);
+            Matrix::GPU(mut gpu_matrix) => {
+                let (new_rows, new_cols) = (gpu_matrix.cols, gpu_matrix.rows);
 
-                queue.write_buffer(
-                    &transpose_buffer,
+                gpu_matrix.queue.write_buffer(
+                    &gpu_matrix.transpose_buffer,
                     0,
-                    bytemuck::cast_slice(&[!transpose as u32]),
+                    bytemuck::cast_slice(&[!gpu_matrix.transpose as u32]),
                 );
 
-                Matrix::GPU(GPUMatrix {
-                    rows: new_rows,
-                    cols: new_cols,
-                    data,
-                    transpose: !transpose,
-                    transpose_buffer,
-                    device,
-                    queue,
-                    bind_group,
-                    writable_bind_group,
-                    add_pipeline,
-                    dot_pipeline,
-                })
+                gpu_matrix.transpose = !gpu_matrix.transpose;
+                gpu_matrix.rows = new_rows;
+                gpu_matrix.cols = new_cols;
+
+                Matrix::GPU(gpu_matrix)
             }
         }
     }
@@ -1254,6 +1346,77 @@ mod tests {
         println!("After First Tranpose: {}", mat1);
         mat1 = mat1.transpose();
         println!("After Second Transpose: {}", mat1);
+
+        assert!(true);
+    }
+
+    #[test]
+    fn test_cpu_scalar_mult() {
+        let mut mat = Matrix::with_shape((5, 6));
+
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                let index = i * mat.cols() + j;
+                mat[(i, j)] = (index + 1) as f32;
+            }
+        }
+
+        println!("Before Mult: {}", mat);
+        println!(
+            "After Mult: {}",
+            mat.mult(12.0).expect("Could Not Multiply Matrix")
+        );
+
+        assert!(true)
+    }
+
+    #[test]
+    fn test_gpu_scalar_mult() {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Device and Queue"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = (Rc::new(device), Rc::new(queue));
+
+        let mut mat = Matrix::with_shape((5, 6));
+
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                let index = i * mat.cols() + j;
+                mat[(i, j)] = (index + 1) as f32;
+            }
+        }
+
+        mat = mat.buf(device.clone(), queue.clone());
+
+        println!("Before Mult: {}", mat);
+        println!(
+            "After Mult: {}",
+            mat.mult(12.0).expect("Could not multiply matrix")
+        );
 
         assert!(true);
     }
