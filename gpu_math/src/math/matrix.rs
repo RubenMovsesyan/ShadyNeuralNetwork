@@ -11,10 +11,13 @@ use wgpu::{
 };
 
 use crate::create_buffer_bind_group;
-use crate::gpu_utils::{WORK_GROUP_SIZE_2D, compute_workgroup_size_2d, get_buffer, read_buffer};
+use crate::gpu_utils::{
+    WORK_GROUP_SIZE, WORK_GROUP_SIZE_2D, compute_workgroup_size, compute_workgroup_size_2d,
+    get_buffer, read_buffer,
+};
 
 use super::math_errors::{
-    MatrixAddError, MatrixDotError, MatrixExpError, MatrixMultError, MatrixSubError,
+    MatrixAddError, MatrixDotError, MatrixExpError, MatrixMultError, MatrixSubError, MatrixSumError,
 };
 
 #[derive(Debug, Clone)]
@@ -38,6 +41,9 @@ struct GPUMatrix {
     // Uniform for scalar multiplications
     scalar_buffer: Buffer,
 
+    // Buffer for summing elements
+    sum_buffer: Buffer,
+
     // Bind Group Information for matrix operations
     bind_group: BindGroup,
     writable_bind_group: BindGroup,
@@ -56,6 +62,9 @@ struct GPUMatrix {
 
     // Exponential
     exp_pipeline: ComputePipeline,
+
+    // Summing all elements
+    sum_pipeline: ComputePipeline,
 
     // WGPU variables
     device: Rc<Device>,
@@ -116,6 +125,20 @@ impl GPUMatrix {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
         });
 
+        // Create a buffer for summing all the elements
+        let sum_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Matrix Sum Buffer"),
+            mapped_at_creation: false,
+            size: {
+                // Computing half the size based on the closest power of 2
+                let half = (new_rows * new_cols) as f32 / 2.0;
+                let next_pow_2 = f32::powf(2.0, (half.log(2.0)).ceil()) as u64;
+
+                next_pow_2 * std::mem::size_of::<f32>() as u64
+            },
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+        });
+
         // Create bind groups
         let (bind_group_layout, bind_group) = create_buffer_bind_group!(
             &device,
@@ -123,7 +146,8 @@ impl GPUMatrix {
             (0, &buffer, Bbt::Storage { read_only: true }),
             (1, &dimensions, Bbt::Uniform),
             (2, &transpose, Bbt::Uniform),
-            (3, &scalar_buffer, Bbt::Uniform)
+            (3, &scalar_buffer, Bbt::Uniform),
+            (4, &sum_buffer, Bbt::Storage { read_only: false })
         );
 
         // Create a writaboe bind group layout for matrix operations
@@ -146,10 +170,17 @@ impl GPUMatrix {
             push_constant_ranges: &[],
         });
 
-        // Create the pipelien for a single operation
+        // Create the pipeline for a single operation
         let single_op_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("Mult Pipeline Layout"),
+            label: Some("Single Op Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout, &writable_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        // Create the pipeline layout for summing
+        let sum_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Sum Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -223,11 +254,26 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for summing the matrix
+        let sum_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/sum.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Sum Compute Pipeline"),
+                module: &shader,
+                layout: Some(&sum_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("sum_main"),
+            })
+        };
+
         GPUMatrix {
             rows: new_rows,
             cols: new_cols,
             data: buffer,
             scalar_buffer,
+            sum_buffer,
             transpose: transposed,
             transpose_buffer: transpose,
             device,
@@ -239,6 +285,7 @@ impl GPUMatrix {
             sub_pipeline,
             mult_pipeline,
             exp_pipeline,
+            sum_pipeline,
         }
     }
 }
@@ -858,6 +905,62 @@ impl Matrix {
                 gpu_matrix.queue.submit(Some(encoder.finish()));
 
                 Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
+    /// Computes the sum of all the elements in a matrix and returns the result
+    ///
+    /// # Returns
+    ///
+    /// `f32` of the sum of all the elements
+    pub fn sum(&self) -> Result<f32, MatrixSumError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                let output = cpu_matrix.data.iter().sum();
+                Ok(output)
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Sum Command Encoder"),
+                        });
+
+                {
+                    let dispatch_size = compute_workgroup_size(
+                        (gpu_matrix.rows * gpu_matrix.cols / 2) as u32,
+                        WORK_GROUP_SIZE,
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Sum Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.sum_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.bind_group, &[]);
+
+                    // Dispatch Work Groups
+                    compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
+                }
+
+                let output_buf = read_buffer(
+                    &gpu_matrix.sum_buffer,
+                    (gpu_matrix.rows * gpu_matrix.cols) / 2 * std::mem::size_of::<f32>() as u64,
+                    &gpu_matrix.device,
+                    &mut encoder,
+                );
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(get_buffer(&output_buf, &gpu_matrix.device)[0])
             }
         }
     }
@@ -1772,6 +1875,71 @@ mod tests {
 
         println!("Before Exp: {}", mat);
         println!("After Exp: {}", mat.exp().expect("Could Not do Matrix Exp"));
+
+        assert!(true);
+    }
+
+    #[test]
+    fn test_cpu_sum() {
+        let mut mat = Matrix::with_shape((50, 1));
+
+        for i in 0..mat.rows() {
+            mat[(i, 0)] = i as f32;
+        }
+
+        println!(
+            "Sum of: {} is {}",
+            mat,
+            mat.sum().expect("Could Not compute Sum")
+        );
+
+        assert!(true);
+    }
+
+    #[test]
+    fn test_gpu_sum() {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Device and Queue"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = (Rc::new(device), Rc::new(queue));
+
+        let mut mat = Matrix::with_shape((50, 1));
+
+        for i in 0..mat.rows() {
+            mat[(i, 0)] = i as f32;
+        }
+
+        mat = mat.buf(device.clone(), queue.clone());
+
+        println!(
+            "Sum of: {} is {}",
+            mat,
+            mat.sum().expect("Could Not compute Sum")
+        );
 
         assert!(true);
     }
