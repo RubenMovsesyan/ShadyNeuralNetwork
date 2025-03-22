@@ -1,0 +1,7 @@
+[package]
+name = "snn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpu_math = { path = "../gpu_math" }
