@@ -35,6 +35,8 @@ def forward_prop(W1, b1, W2, b2, x):
     return Z1, A1, Z2, A2
 
 def one_hot(y):
+    print(y)
+    print(y.shape)
     one_hot_y = np.zeros((y.size, y.max() + 1))
     one_hot_y[np.arange(y.size), y] = 1
     one_hot_y = one_hot_y.T

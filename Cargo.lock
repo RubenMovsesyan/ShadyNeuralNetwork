@@ -159,6 +159,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "damage"
+version = "0.1.0"
+
+[[package]]
 name = "data_generator"
 version = "0.1.0"
 
@@ -829,6 +833,8 @@ name = "snn"
 version = "0.1.0"
 dependencies = [
  "gpu_math",
+ "rand",
+ "wgpu",
 ]
 
 [[package]]

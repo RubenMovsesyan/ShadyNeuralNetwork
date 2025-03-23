@@ -19,7 +19,7 @@ use crate::gpu_utils::{
 
 use super::math_errors::{
     MatrixAddError, MatrixCustomError, MatrixDotError, MatrixExpError, MatrixMultError,
-    MatrixSubError, MatrixSumError,
+    MatrixSubError, MatrixSumError, MatrixVariantError,
 };
 
 #[derive(Debug, Clone)]
@@ -385,6 +385,34 @@ impl Matrix {
         match self {
             Matrix::CPU(cpu_matrix) => cpu_matrix.cols,
             Matrix::GPU(gpu_matrix) => gpu_matrix.cols as usize,
+        }
+    }
+
+    /// Gets a reference to the device being used for this matrix
+    ///
+    /// # Returns
+    ///
+    /// `Result` with a refernce of the device if successfull or `MatrixVariantError` if not
+    pub fn device(&self) -> Result<&Rc<Device>, MatrixVariantError> {
+        match self {
+            Matrix::CPU(_) => Err(MatrixVariantError(String::from(
+                "Matrix CPU does not have a device",
+            ))),
+            Matrix::GPU(gpu_matrix) => Ok(&gpu_matrix.device),
+        }
+    }
+
+    /// Gets a refernce to the queue being used for this matrix
+    ///
+    /// # Returns
+    ///
+    /// `Result` with a reference of the queue if successfull or `MatrixVariantError` if not
+    pub fn queue(&self) -> Result<&Rc<Queue>, MatrixVariantError> {
+        match self {
+            Matrix::CPU(_) => Err(MatrixVariantError(String::from(
+                "Matrix CPU does not have a queue",
+            ))),
+            Matrix::GPU(gpu_matrix) => Ok(&gpu_matrix.queue),
         }
     }
 
@@ -973,6 +1001,57 @@ impl Matrix {
                 gpu_matrix.queue.submit(Some(encoder.finish()));
 
                 Ok(get_buffer(&output_buf, &gpu_matrix.device)[0])
+            }
+        }
+    }
+
+    /// Returns a transposed version of the current matrix
+    ///
+    /// # Returns
+    ///
+    /// `Matrix` with tranposed dimensions
+    pub fn transposed(&self) -> Matrix {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                let (new_rows, new_cols) = (cpu_matrix.cols, cpu_matrix.rows);
+
+                Matrix::CPU(CPUMatrix {
+                    rows: new_rows,
+                    cols: new_cols,
+                    data: cpu_matrix.data.clone(),
+                    transpose: !cpu_matrix.transpose,
+                })
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let (new_rows, new_cols) = (gpu_matrix.cols, gpu_matrix.rows);
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Transpose Command Encoder"),
+                        });
+
+                let buf = read_buffer(
+                    &gpu_matrix.data,
+                    new_rows * new_cols * std::mem::size_of::<f32>() as u64,
+                    &gpu_matrix.device,
+                    &mut encoder,
+                );
+
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                let data = get_buffer(&buf, &gpu_matrix.device);
+
+                let output = GPUMatrix::with_shape(
+                    (new_rows, new_cols),
+                    Some(data),
+                    !gpu_matrix.transpose,
+                    gpu_matrix.device.clone(),
+                    gpu_matrix.queue.clone(),
+                );
+
+                Matrix::GPU(output)
             }
         }
     }

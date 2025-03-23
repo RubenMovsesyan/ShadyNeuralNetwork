@@ -79,3 +79,14 @@ impl Display for MatrixCustomError {
         write!(f, "{}", self.0)
     }
 }
+
+#[derive(Debug)]
+pub struct MatrixVariantError(pub String);
+
+impl Error for MatrixVariantError {}
+
+impl Display for MatrixVariantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
