@@ -76,6 +76,41 @@ impl CSV {
                 .collect(),
         )
     }
+
+    pub fn columns_slice<'a>(
+        &'a self,
+        headers: Range<&str>,
+        index: Range<usize>,
+    ) -> Option<Vec<&'a [Data]>> {
+        let data_range = {
+            let start = match self
+                .headers
+                .iter()
+                .position(|header| header.as_str() == headers.start)
+            {
+                Some(start) => start,
+                None => return None,
+            };
+
+            let end = match self
+                .headers
+                .iter()
+                .position(|header| header.as_str() == headers.end)
+            {
+                Some(end) => end,
+                None => return None,
+            };
+
+            start..end
+        };
+
+        Some(
+            self.records[index]
+                .iter()
+                .map(|record| &record.data[data_range.clone()])
+                .collect(),
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -180,6 +215,22 @@ mod tests {
         println!(
             "Labels 0 - 10: {:#?}",
             csv.column_slice("label", 0..10).unwrap()
-        )
+        );
+
+        assert!(true);
+    }
+
+    #[test]
+    fn test_csv_slice_heading_slice() {
+        let csv = parse_csv("../test_files/mnist_train.csv").expect("Failed");
+
+        println!(
+            "{} - {} 8 - 14: {:#?}",
+            "6x13",
+            "6x22",
+            csv.columns_slice("6x13".."6x22", 8..14).unwrap()
+        );
+
+        assert!(true);
     }
 }
