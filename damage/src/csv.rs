@@ -1,4 +1,5 @@
 use std::{
+    error::Error,
     fmt::{Debug, Display},
     fs::File,
     io::{BufRead, BufReader},
@@ -114,10 +115,50 @@ impl CSV {
 }
 
 #[derive(Debug)]
+pub struct IncompatibleDataError;
+
+impl Display for IncompatibleDataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Incompatible Data Type")
+    }
+}
+
+impl Error for IncompatibleDataError {}
+
+#[derive(Debug)]
 pub enum Data {
     Integer(u32),
     Float(f32),
     Str(String),
+}
+
+impl Data {
+    pub fn as_integer(&self) -> Result<u32, IncompatibleDataError> {
+        use Data::*;
+        match self {
+            Integer(int) => Ok(*int),
+            Float(float) => Ok(*float as u32),
+            Str(_) => Err(IncompatibleDataError),
+        }
+    }
+
+    pub fn as_float(&self) -> Result<f32, IncompatibleDataError> {
+        use Data::*;
+        match self {
+            Integer(int) => Ok(*int as f32),
+            Float(float) => Ok(*float),
+            Str(_) => Err(IncompatibleDataError),
+        }
+    }
+
+    pub fn as_str(&self) -> Result<String, IncompatibleDataError> {
+        use Data::*;
+        match self {
+            Integer(int) => Ok(int.to_string()),
+            Float(float) => Ok(float.to_string()),
+            Str(string) => Ok(string.to_string()),
+        }
+    }
 }
 
 impl Display for Data {
