@@ -91,21 +91,36 @@ data = np.array(pd.read_csv('../test_files/mnist_train.csv'))
 
 # Get the dimensions of the data
 m, n = data.shape
-print(m, n)
-np.random.shuffle(data)
+print("Data Shape: ", m, n)
+# np.random.shuffle(data)
 
 # Testing data
-data_dev = data[0:1000].T
-label_dev = data_dev[0]
-image_dev = data_dev[1:n]
+# data_dev = data[0:1000].T
+# label_dev = data_dev[0]
+# image_dev = data_dev[1:n]
 
 # Training data
-data_train = data[1000:m].T
+data_train = data[0:1000].T
 label_train = data_train[0]
 image_train = data_train[1:n]
 image_train = image_train / 255.
 
-W1, b1, W2, b2, accuracy_array = gradient_descent(image_train, label_train, 500, 0.1)
+# W1, b1, W2, b2, accuracy_array = gradient_descent(image_train, label_train, 500, 0.1)
 
-plt.plot(accuracy_array)
-plt.show()
+# plt.plot(accuracy_array)
+# plt.show()
+print(image_train, image_train.shape)
+W1, b1, W2, b2 = init_params()
+Z1, A1, Z2, A2 = forward_prop(W1, b1, W2, b2, image_train)
+print("Z1 Shape: ", Z1.shape)
+print("Z1: ", Z1)
+print("A1: ", A1)
+print("Z2: ", Z2)
+print("A2: ", A2)
+
+dW1, db1, dW2, db2 = back_prop(Z1, A1, Z2, A2, W2, image_train, label_train)
+
+print("dW1: ", dW1)
+print("db1: ", db1)
+print("dW2: ", dW2)
+print("db2: ", db2)

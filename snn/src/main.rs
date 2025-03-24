@@ -8,6 +8,8 @@ use wgpu::{
     PowerPreference, Queue, RequestAdapterOptions, include_wgsl,
 };
 
+const NUM_INPUTS: usize = 1000;
+
 fn one_hot_y(y: &Matrix) -> Matrix {
     let mut output = Matrix::with_shape((y.rows(), 10));
 
@@ -91,11 +93,10 @@ fn back_prop(
     w2: &Matrix,
     x: &Matrix,
     y: &Matrix,
-    m: f32,
 ) -> Result<(Matrix, f32, Matrix, f32), Box<dyn Error>> {
     let dz2 = a2.sub(y)?;
-    let dw2 = dz2.dot(&a1.transposed())?.mult(1.0 / m)?;
-    let db2 = dz2.sum()? / m;
+    let dw2 = dz2.dot(&a1.transposed())?.mult(1.0 / NUM_INPUTS as f32)?;
+    let db2 = dz2.sum()? / NUM_INPUTS as f32;
 
     let d_relu = z1
         .add_custom_single_op_pipeline(include_wgsl!("shaders/d_relu.wgsl"))
@@ -104,10 +105,70 @@ fn back_prop(
         .transposed()
         .dot(&dz2)?
         .elem_mult(&z1.run_custom_single_op_pipeline(d_relu)?)?;
-    let dw1 = dz1.dot(&x.transposed())?.mult(1.0 / m)?;
-    let db1 = dz1.sum()? / m;
+    let dw1 = dz1.dot(&x.transposed())?.mult(1.0 / NUM_INPUTS as f32)?;
+    let db1 = dz1.sum()? / NUM_INPUTS as f32;
 
     Ok((dw1, db1, dw2, db2))
+}
+
+fn update_params(
+    w1: &mut Matrix,
+    b1: &mut Matrix,
+    w2: &mut Matrix,
+    b2: &mut Matrix,
+    dw1: &Matrix,
+    db1: f32,
+    dw2: &Matrix,
+    db2: f32,
+    alpha: f32,
+) -> Result<(), Box<dyn Error>> {
+    *w1 = w1.sub(&dw1.mult(alpha)?)?;
+    let mut b1_sub = Matrix::with_shape((b1.rows(), b1.cols()));
+    for i in 0..b1_sub.rows() {
+        for j in 0..b1_sub.cols() {
+            b1_sub[(i, j)] = 1.0;
+        }
+    }
+    b1_sub = b1_sub.buf(b1.device()?.clone(), b1.queue()?.clone());
+    *b1 = b1.sub(&b1_sub.mult(alpha * db1)?)?;
+
+    *w2 = w2.sub(&dw2.mult(alpha)?)?;
+    let mut b2_sub = Matrix::with_shape((b2.rows(), b2.cols()));
+    for i in 0..b2_sub.rows() {
+        for j in 0..b2_sub.cols() {
+            b2_sub[(i, j)] = 1.0;
+        }
+    }
+    b2_sub = b2_sub.buf(b2.device()?.clone(), b2.queue()?.clone());
+    *b2 = b2.sub(&b2_sub.mult(alpha * db2)?)?;
+
+    Ok(())
+}
+
+fn gradient_descent(
+    x: &Matrix,
+    y: &Matrix,
+    iterations: usize,
+    alpha: f32,
+    device: Rc<Device>,
+    queue: Rc<Queue>,
+) -> Result<f32, Box<dyn Error>> {
+    let (mut w1, mut b1, mut w2, mut b2) = init_params(device.clone(), queue.clone());
+
+    for i in 0..iterations {
+        let (mut z1, a1, z2, a2) = feed_forward(&w1, &b1, &w2, &b2, x)?;
+        let (dw1, db1, dw2, db2) = back_prop(&mut z1, &a1, &z2, &a2, &w2, x, y)?;
+        update_params(
+            &mut w1, &mut b1, &mut w2, &mut b2, &dw1, db1, &dw2, db2, alpha,
+        )?;
+
+        if i % 10 == 0 {
+            println!("Iteration: {i}");
+            println!("Diff: {}", a2.sub(y)?.sum()?);
+        }
+    }
+
+    todo!()
 }
 
 fn main() {
@@ -143,13 +204,13 @@ fn main() {
     let data = parse_csv("../../test_files/mnist_train.csv").expect("Failed");
 
     let label_train = data
-        .column_slice("label", 0..1000)
+        .column_slice("label", 0..NUM_INPUTS)
         .expect("Failed")
         .iter()
         .map(|&label_data| label_data.as_float().expect("Failed"))
         .collect::<Vec<f32>>();
 
-    let mut label_inputs = Matrix::with_shape((1000, 1));
+    let mut label_inputs = Matrix::with_shape((NUM_INPUTS, 1));
 
     for i in 0..label_inputs.rows() {
         label_inputs[(i, 0)] = label_train[i];
@@ -159,7 +220,7 @@ fn main() {
     label_inputs = label_inputs.buf(device.clone(), queue.clone());
 
     let image_train = data
-        .columns_slice("1x1"..="28x28", 0..1000)
+        .columns_slice("1x1"..="28x28", 0..NUM_INPUTS)
         .expect("Failed")
         .iter()
         .map(|&data_array| {
@@ -170,7 +231,7 @@ fn main() {
         })
         .collect::<Vec<Vec<f32>>>();
 
-    let mut training_inputs = Matrix::with_shape((1000, 784));
+    let mut training_inputs = Matrix::with_shape((NUM_INPUTS, 784));
 
     for i in 0..training_inputs.rows() {
         for j in 0..training_inputs.cols() {
@@ -182,28 +243,19 @@ fn main() {
         .buf(device.clone(), queue.clone())
         .transposed();
 
-    let (w1, b1, w2, b2) = init_params(device.clone(), queue.clone());
-    let (mut z1, a1, z2, a2) = feed_forward(&w1, &b1, &w2, &b2, &training_inputs).expect("Failed");
+    gradient_descent(&training_inputs, &label_inputs, 500, 0.1, device, queue).expect("Failed");
+    // let (w1, b1, w2, b2) = init_params(device.clone(), queue.clone());
+    // let (mut z1, a1, z2, a2) = feed_forward(&w1, &b1, &w2, &b2, &training_inputs).expect("Failed");
 
-    println!("z1: {} {}", z1.rows(), z1.cols());
-    println!("a1: {} {}", a1.rows(), a1.cols());
-    println!("z2: {} {}", z2.rows(), z2.cols());
-    println!("a2: {} {}", a2.rows(), a2.cols());
-
-    let (dw1, db1, dw2, db2) = back_prop(
-        &mut z1,
-        &a1,
-        &z2,
-        &a2,
-        &w2,
-        &training_inputs,
-        &label_inputs,
-        1000.0,
-    )
-    .expect("Failed");
-
-    println!("dw1: {} {}", dw1.rows(), dw1.cols());
-    println!("db1: {}", db1);
-    println!("dw2: {} {}", dw2.rows(), dw2.cols());
-    println!("db2: {}", db2);
+    // let (dw1, db1, dw2, db2) = back_prop(
+    //     &mut z1,
+    //     &a1,
+    //     &z2,
+    //     &a2,
+    //     &w2,
+    //     &training_inputs,
+    //     &label_inputs,
+    //     NUM_INPUTS as f32,
+    // )
+    // .expect("Failed");
 }

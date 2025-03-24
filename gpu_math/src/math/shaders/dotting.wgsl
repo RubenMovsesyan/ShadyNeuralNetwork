@@ -59,7 +59,6 @@ fn dot_main(
 
     if (row < output_rows && col < output_cols) {
         var sum: f32 = 0.0;
-        // let output_index = row * output_cols + col;
         var x_index: u32 = 0;
 
         if (x_transpose == 1) {
@@ -70,25 +69,24 @@ fn dot_main(
 
 
         for (var k: u32 = 0; k < dot_size; k++) {
-            // let a_index = row * a_cols + k;
-            // let b_index = k * b_cols + col;
             var a_index: u32 = 0;
             var b_index: u32 = 0;
 
             if (a_transpose == 1) {
-                a_index = row + a_rows * k;
+                a_index = k * a_rows + row;
             } else {
-                a_index = k * a_cols + col;
+                a_index = row * a_cols + k;
             }
 
             if (b_transpose == 1) {
-                b_index = row + b_rows * k;
+                b_index = col * b_rows + k;
             } else {
                 b_index = k * b_cols + col;
             }
 
 
             sum += matrix_a[a_index] * matrix_b[b_index];
+            // sum += matrix_b[b_index];
         }
 
         matrix_x[x_index] = sum;
