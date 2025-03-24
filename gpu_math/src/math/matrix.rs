@@ -62,6 +62,9 @@ struct GPUMatrix {
     // Multiplying
     mult_pipeline: ComputePipeline,
 
+    // Element-wise multiplication
+    elem_mult_pipeline: ComputePipeline,
+
     // Exponential
     exp_pipeline: ComputePipeline,
 
@@ -283,6 +286,20 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for element-wise multiplication
+        let elem_mult_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/elem_mult.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Elem Mult Compute Pipeline"),
+                module: &shader,
+                layout: Some(&pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("elem_mult_main"),
+            })
+        };
+
         // Create the compute pipeline for exponenting the matrix
         let exp_pipeline = {
             let shader = device.create_shader_module(include_wgsl!("shaders/exp.wgsl"));
@@ -327,6 +344,7 @@ impl GPUMatrix {
             add_pipeline,
             sub_pipeline,
             mult_pipeline,
+            elem_mult_pipeline,
             exp_pipeline,
             sum_pipeline,
             vectored_add_pipeline,
@@ -1203,6 +1221,120 @@ impl Matrix {
 
                 gpu_matrix.device.poll(Maintain::Wait);
                 gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
+    /// Performs an element-wise multiplication with the matrix described in `other`
+    /// If the matrix is a `Matrix::CPU` it will do a sequential computation
+    /// If the matrix is a `Matrix::GPU` it will do a parallel computation
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - reference to another matrix to do the element-wise multiplication with
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the element-wise multiplication was successful and `Err` if the element-wise multiplication failed
+    pub fn elem_mult(&self, other: &Matrix) -> Result<Matrix, MatrixMultError> {
+        match self {
+            Matrix::CPU(CPUMatrix { rows, cols, .. }) => {
+                let (b_rows, b_cols) = match other {
+                    Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+                    _ => {
+                        return Err(MatrixMultError(String::from(
+                            "Matrix Variants do not match",
+                        )));
+                    }
+                };
+
+                if *rows != *b_rows || *cols != *b_cols {
+                    return Err(MatrixMultError(String::from(
+                        "Matrix Rows and Colums do not match",
+                    )));
+                }
+
+                let mut output_mat = Matrix::with_shape((*rows, *cols));
+
+                for i in 0..*rows {
+                    for j in 0..*cols {
+                        output_mat[(i, j)] = self[(i, j)] * other[(i, j)];
+                    }
+                }
+
+                Ok(output_mat)
+            }
+            Matrix::GPU(GPUMatrix {
+                rows,
+                cols,
+                device,
+                transpose,
+                queue,
+                bind_group,
+                elem_mult_pipeline,
+                ..
+            }) => {
+                let (b_rows, b_cols, b_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => {
+                        return Err(MatrixMultError(String::from(
+                            "Matrix Variants do not match",
+                        )));
+                    }
+                };
+
+                if *rows != *b_rows || *cols != *b_cols {
+                    return Err(MatrixMultError(String::from(
+                        "Matrix Rows and Colums do not match",
+                    )));
+                }
+
+                // Create the output matrix to store add into
+                let output = GPUMatrix::with_shape(
+                    (*rows, *cols),
+                    None,
+                    *transpose,
+                    device.clone(),
+                    queue.clone(),
+                );
+
+                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Matrix Elem Mult Command Encoder"),
+                });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (*rows as u32, *cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Elem Mult Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&elem_mult_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    compute_pass.set_bind_group(1, b_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &output.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                device.poll(Maintain::Wait);
+                queue.submit(Some(encoder.finish()));
 
                 Ok(Matrix::GPU(output))
             }
