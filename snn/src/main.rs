@@ -8,7 +8,7 @@ use wgpu::{
     PowerPreference, Queue, RequestAdapterOptions, include_wgsl,
 };
 
-const NUM_INPUTS: usize = 1000;
+const NUM_INPUTS: usize = 10;
 
 fn one_hot_y(y: &Matrix) -> Matrix {
     let mut output = Matrix::with_shape((y.rows(), 10));
@@ -164,6 +164,10 @@ fn gradient_descent(
 
         if i % 10 == 0 {
             println!("Iteration: {i}");
+            // println!("W1: {}", w1);
+            // println!("B1: {}", b1);
+            // println!("W2: {}", w2);
+            // println!("B2: {}", b2);
             println!("Diff: {}", a2.sub(y)?.sum()?);
         }
     }
