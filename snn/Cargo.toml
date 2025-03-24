@@ -5,5 +5,7 @@ edition = "2024"
 
 [dependencies]
 gpu_math = { path = "../gpu_math" }
+damage = { path = "../damage" }
 rand = "0.9.0"
 wgpu = "24.0.3"
+pollster = "0.4.0"

@@ -40,7 +40,7 @@ struct GPUMatrix {
     // Uniform to keep track of transpose
     transpose_buffer: Buffer,
 
-    // Uniform for scalar multiplications
+    // Uniform for scalar multiplications and can be used for sending data to the gpu
     scalar_buffer: Buffer,
 
     // Buffer for summing elements
@@ -67,6 +67,12 @@ struct GPUMatrix {
 
     // Summing all elements
     sum_pipeline: ComputePipeline,
+
+    // Vectored Adding
+    vectored_add_pipeline: ComputePipeline,
+
+    // Vectored Subtracting
+    vectored_sub_pipeline: ComputePipeline,
 
     // Custom Pipelines
     custom_pipelines: Vec<ComputePipeline>,
@@ -128,7 +134,7 @@ impl GPUMatrix {
 
         // Create a buffer for multiplying scalars with
         let scalar_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Matirx Scalar Buffer"),
+            label: Some("Matrix Scalar Buffer"),
             mapped_at_creation: false,
             size: std::mem::size_of::<f32>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
@@ -221,6 +227,20 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for vectored adding
+        let vectored_add_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/vectored_add.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Vectored Add Compute Pipeline"),
+                module: &shader,
+                layout: Some(&pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("vectored_add_main"),
+            })
+        };
+
         // Create the compute pipeline for subtracting
         let sub_pipeline = {
             let shader = device.create_shader_module(include_wgsl!("shaders/subtracting.wgsl"));
@@ -232,6 +252,20 @@ impl GPUMatrix {
                 cache: None,
                 compilation_options: PipelineCompilationOptions::default(),
                 entry_point: Some("sub_main"),
+            })
+        };
+
+        // Create the compute pipeline for vectored subtracting
+        let vectored_sub_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/vectored_sub.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Vectored Sub Compute Pipeline"),
+                module: &shader,
+                layout: Some(&pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("vectored_sub_main"),
             })
         };
 
@@ -295,6 +329,8 @@ impl GPUMatrix {
             mult_pipeline,
             exp_pipeline,
             sum_pipeline,
+            vectored_add_pipeline,
+            vectored_sub_pipeline,
             custom_pipelines: Vec::new(),
             multi_op_pipeline_layout: pipeline_layout,
             single_op_pipeline_layout,
@@ -386,6 +422,20 @@ impl Matrix {
             Matrix::CPU(cpu_matrix) => cpu_matrix.cols,
             Matrix::GPU(gpu_matrix) => gpu_matrix.cols as usize,
         }
+    }
+
+    /// Checks if the current matrix is a vector
+    ///
+    /// # Returns
+    ///
+    /// `true` if the matrix has either 1 row or 1 column, but not both
+    pub fn is_vector(&self) -> bool {
+        let (rows, cols) = match self {
+            Matrix::CPU(cpu_matrix) => (cpu_matrix.rows, cpu_matrix.cols),
+            Matrix::GPU(gpu_matrix) => (gpu_matrix.rows as usize, gpu_matrix.cols as usize),
+        };
+
+        (rows == 1 || cols == 1) && !(rows == cols)
     }
 
     /// Gets a reference to the device being used for this matrix
@@ -707,6 +757,143 @@ impl Matrix {
         }
     }
 
+    /// Performs a vectored addition on the current matrix given the `other` matrix
+    /// The other matrix must be a vector with either the same number of rows or columns as the
+    /// current matrix. If the rows and columns are the same it will default to the orientation that
+    /// the `other` matrix is in.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - vector to use to add to this matrix
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the addition was successful and `Err` if the addition failed
+    pub fn vectored_add(&self, other: &Matrix) -> Result<Matrix, MatrixAddError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                let (other_rows, other_cols) = match other {
+                    Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+                    _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+                };
+
+                // Check if the other matrix is a vector with the correct size
+                // Check if the other is a vector in the first place
+                if !other.is_vector() {
+                    return Err(MatrixAddError(String::from("Matrix 2 is not a Vector")));
+                }
+
+                let mut output = Matrix::with_shape((cpu_matrix.rows, cpu_matrix.cols));
+
+                // Check the rows first
+                if *other_rows == cpu_matrix.rows {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] + other[(i, 0)];
+                        }
+                    }
+                // Check the columns before checking the transposes
+                } else if *other_cols == cpu_matrix.cols {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] + other[(0, j)];
+                        }
+                    }
+                } else if *other_rows == cpu_matrix.cols {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] + other[(j, 0)];
+                        }
+                    }
+                } else if *other_cols == cpu_matrix.rows {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] + other[(0, i)];
+                        }
+                    }
+                } else {
+                    return Err(MatrixAddError(String::from(
+                        "Vector Dimensions do no match matrix",
+                    )));
+                }
+
+                Ok(output)
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let (other_rows, other_cols, other_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+                };
+
+                // Check if the other matrix is a vector with the correct size
+                // Check if the other is a vector in the first place
+                if !other.is_vector() {
+                    return Err(MatrixAddError(String::from("Matrix 2 is not a Vector")));
+                }
+
+                if !(*other_rows == gpu_matrix.rows
+                    || *other_cols == gpu_matrix.cols
+                    || *other_rows == gpu_matrix.cols
+                    || *other_cols == gpu_matrix.rows)
+                {
+                    return Err(MatrixAddError(String::from(
+                        "Vector Dimensions do no match matrix",
+                    )));
+                }
+
+                // Create the output matrix to store the add into
+                let output = GPUMatrix::with_shape(
+                    (gpu_matrix.rows, gpu_matrix.cols),
+                    None,
+                    gpu_matrix.transpose,
+                    gpu_matrix.device.clone(),
+                    gpu_matrix.queue.clone(),
+                );
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Vectored Add Command Encoder"),
+                        });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Vectored Add Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.vectored_add_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.bind_group, &[]);
+                    compute_pass.set_bind_group(1, other_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &output.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
     /// Performs a subtraction with the matrix described in `other`
     /// If the matrix is a `Matrix::CPU` it will do a sequential computation
     /// If the matrix is a `Matrix::GPU` it will do a parallel computation
@@ -809,6 +996,143 @@ impl Matrix {
 
                 device.poll(Maintain::Wait);
                 queue.submit(Some(encoder.finish()));
+
+                Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
+    /// Performs a vectored subtraction on the current matrix given the `other` matrix
+    /// The other matrix must be a vector with either the same number of rows or columns as the
+    /// current matrix. If the rows and columns are the same it will default to the orientation that
+    /// the `other` matrix is in.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - vector to use to subtract from this matrix
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the subtraction was successful and `Err` if the subtraction failed
+    pub fn vectored_sub(&self, other: &Matrix) -> Result<Matrix, MatrixSubError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                let (other_rows, other_cols) = match other {
+                    Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+                    _ => return Err(MatrixSubError(String::from("Matrix Variants do not match"))),
+                };
+
+                // Check if the other matrix is a vector with the correct size
+                // Check if the other is a vector in the first place
+                if !other.is_vector() {
+                    return Err(MatrixSubError(String::from("Matrix 2 is not a Vector")));
+                }
+
+                let mut output = Matrix::with_shape((cpu_matrix.rows, cpu_matrix.cols));
+
+                // Check the rows first
+                if *other_rows == cpu_matrix.rows {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] - other[(i, 0)];
+                        }
+                    }
+                // Check the columns before checking the transposes
+                } else if *other_cols == cpu_matrix.cols {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] - other[(0, j)];
+                        }
+                    }
+                } else if *other_rows == cpu_matrix.cols {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] - other[(j, 0)];
+                        }
+                    }
+                } else if *other_cols == cpu_matrix.rows {
+                    for i in 0..cpu_matrix.rows {
+                        for j in 0..cpu_matrix.cols {
+                            output[(i, j)] = self[(i, j)] - other[(0, i)];
+                        }
+                    }
+                } else {
+                    return Err(MatrixSubError(String::from(
+                        "Vector Dimensions do no match matrix",
+                    )));
+                }
+
+                Ok(output)
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let (other_rows, other_cols, other_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => return Err(MatrixSubError(String::from("Matrix Variants do not match"))),
+                };
+
+                // Check if the other matrix is a vector with the correct size
+                // Check if the other is a vector in the first place
+                if !other.is_vector() {
+                    return Err(MatrixSubError(String::from("Matrix 2 is not a Vector")));
+                }
+
+                if !(*other_rows == gpu_matrix.rows
+                    || *other_cols == gpu_matrix.cols
+                    || *other_rows == gpu_matrix.cols
+                    || *other_cols == gpu_matrix.rows)
+                {
+                    return Err(MatrixSubError(String::from(
+                        "Vector Dimensions do no match matrix",
+                    )));
+                }
+
+                // Create the output matrix to store the add into
+                let output = GPUMatrix::with_shape(
+                    (gpu_matrix.rows, gpu_matrix.cols),
+                    None,
+                    gpu_matrix.transpose,
+                    gpu_matrix.device.clone(),
+                    gpu_matrix.queue.clone(),
+                );
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Vectored Add Command Encoder"),
+                        });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Vectored Add Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.vectored_sub_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.bind_group, &[]);
+                    compute_pass.set_bind_group(1, other_bind_group, &[]);
+                    compute_pass.set_bind_group(2, &output.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
 
                 Ok(Matrix::GPU(output))
             }
@@ -1231,7 +1555,7 @@ impl Index<(usize, usize)> for Matrix {
                 };
                 &data[inner_index]
             }
-            _ => {
+            Matrix::GPU(_gpu_matrix) => {
                 todo!()
             }
         }
@@ -1541,6 +1865,320 @@ mod tests {
         println!("Add B: {}", mat2);
         println!("Add Result: {}", output_mat);
         assert!(true);
+    }
+
+    #[test]
+    fn test_cpu_vectored_add() {
+        let mut mat = Matrix::with_shape((5, 6));
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                mat[(i, j)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        let mut vec = Matrix::with_shape((5, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 5));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((6, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 6));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((2, 6));
+        for i in 0..vec.rows() {
+            for j in 0..vec.cols() {
+                vec[(0, i)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+
+        assert!(mat.vectored_add(&vec).is_err())
+    }
+
+    #[test]
+    fn test_gpu_vectored_add() {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Device and Queue"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = (Rc::new(device), Rc::new(queue));
+
+        let mut mat = Matrix::with_shape((5, 6));
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                mat[(i, j)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        mat = mat.buf(device.clone(), queue.clone());
+
+        let mut vec = Matrix::with_shape((5, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 5));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((6, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 6));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_add(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((2, 6));
+        for i in 0..vec.rows() {
+            for j in 0..vec.cols() {
+                vec[(0, i)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+
+        assert!(mat.vectored_add(&vec).is_err())
+    }
+
+    #[test]
+    fn test_cpu_vectored_sub() {
+        let mut mat = Matrix::with_shape((5, 6));
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                mat[(i, j)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        let mut vec = Matrix::with_shape((5, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 5));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((6, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 6));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((2, 6));
+        for i in 0..vec.rows() {
+            for j in 0..vec.cols() {
+                vec[(0, i)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+
+        assert!(mat.vectored_sub(&vec).is_err())
+    }
+
+    #[test]
+    fn test_gpu_vectored_sub() {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Device and Queue"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = (Rc::new(device), Rc::new(queue));
+
+        let mut mat = Matrix::with_shape((5, 6));
+        for i in 0..mat.rows() {
+            for j in 0..mat.cols() {
+                mat[(i, j)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        mat = mat.buf(device.clone(), queue.clone());
+
+        let mut vec = Matrix::with_shape((5, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 5));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((6, 1));
+        for i in 0..vec.rows() {
+            vec[(i, 0)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((1, 6));
+        for i in 0..vec.cols() {
+            vec[(0, i)] = i as f32;
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+        println!("Result: {}", mat.vectored_sub(&vec).expect("Failed"));
+
+        vec = Matrix::with_shape((2, 6));
+        for i in 0..vec.rows() {
+            for j in 0..vec.cols() {
+                vec[(0, i)] = (i * mat.cols() + j) as f32;
+            }
+        }
+
+        vec = vec.buf(device.clone(), queue.clone());
+
+        println!("Mat: {}", mat);
+        println!("Vec: {}", vec);
+
+        assert!(mat.vectored_sub(&vec).is_err())
     }
 
     #[test]

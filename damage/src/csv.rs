@@ -3,7 +3,7 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::{BufRead, BufReader},
-    ops::{Index, Range},
+    ops::{Index, Range, RangeBounds},
     path::Path,
     slice::SliceIndex,
 };
@@ -78,28 +78,51 @@ impl CSV {
         )
     }
 
-    pub fn columns_slice<'a>(
+    pub fn columns_slice<'a, R>(
         &'a self,
-        headers: Range<&str>,
+        headers: R,
         index: Range<usize>,
-    ) -> Option<Vec<&'a [Data]>> {
+    ) -> Option<Vec<&'a [Data]>>
+    where
+        R: RangeBounds<&'a str>,
+    {
         let data_range = {
-            let start = match self
-                .headers
-                .iter()
-                .position(|header| header.as_str() == headers.start)
-            {
-                Some(start) => start,
-                None => return None,
+            let start = match headers.start_bound() {
+                std::ops::Bound::Excluded(start_bound) | std::ops::Bound::Included(start_bound) => {
+                    match self
+                        .headers
+                        .iter()
+                        .position(|header| header.as_str() == *start_bound)
+                    {
+                        Some(start) => start,
+                        None => return None,
+                    }
+                }
+                _ => return None,
             };
 
-            let end = match self
-                .headers
-                .iter()
-                .position(|header| header.as_str() == headers.end)
-            {
-                Some(end) => end,
-                None => return None,
+            let end = match headers.end_bound() {
+                std::ops::Bound::Excluded(end_bound) => {
+                    match self
+                        .headers
+                        .iter()
+                        .position(|header| header.as_str() == *end_bound)
+                    {
+                        Some(end) => end,
+                        None => return None,
+                    }
+                }
+                std::ops::Bound::Included(end_bound) => {
+                    match self
+                        .headers
+                        .iter()
+                        .position(|header| header.as_str() == *end_bound)
+                    {
+                        Some(end) => end + 1,
+                        None => return None,
+                    }
+                }
+                _ => return None,
             };
 
             start..end
