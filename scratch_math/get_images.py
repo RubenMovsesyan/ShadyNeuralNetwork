@@ -10,16 +10,18 @@ image_array = idx2numpy.convert_from_file(image_file)
 # plt.imshow(image_array[4], cmap=plt.cm.binary)
 # plt.show()
 
-def print_progress(curr, total):
-    size = 50
-    print("\r[", end="")
-    ratio = curr / total
-    for i in range(int(50 * ratio)):
-        print("=", end="")
-    for i in range(int(50 - (50 * ratio))):
-        print(" ", end="")
-    print("]", end="")
+# def print_progress(curr, total):
+#     size = 50
+#     print("\r[", end="")
+#     ratio = curr / total
+#     for i in range(int(50 * ratio)):
+#         print("=", end="")
+#     for i in range(int(50 - (50 * ratio))):
+#         print(" ", end="")
+#     print("]", end="")
 
-for i in range(len(image_array)):
-    print_progress(i, len(image_array))
-    image_array[i].astype("int8").tofile("../test_files/train_images/image_array_%d" % i)
+# for i in range(len(image_array)):
+#     print_progress(i, len(image_array))
+#     image_array[i].astype("int8").tofile("../test_files/train_images/image_array_%d" % i)
+
+image_array.astype("int8").tofile("../test_files/train_images")

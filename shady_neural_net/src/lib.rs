@@ -264,7 +264,7 @@ impl NeuralNet {
         );
     }
 
-    pub fn feed_forward(&self, inputs: Vec<f32>) -> Result<(), Box<dyn Error>> {
+    pub fn feed_forward(&self, inputs: &Vec<f32>) -> Result<(), Box<dyn Error>> {
         // FIXME fix this
         match self.input_layer.as_ref().unwrap() {
             NeuralNetLayer::Input(input_layer) => input_layer
@@ -310,10 +310,10 @@ impl NeuralNet {
         }
     }
 
-    pub fn set_loss(&self, expected_values: Vec<f32>) -> Result<(), Box<dyn Error>> {
+    pub fn compute_loss(&self, expected_values: &Vec<f32>) -> Result<(), Box<dyn Error>> {
         match self.output_layer.as_ref().unwrap() {
             NeuralNetLayer::Output(output_layer) => {
-                output_layer.set_expected_weights(&expected_values, &self.queue);
+                output_layer.set_expected_weights(expected_values, &self.queue);
                 Ok(())
             }
             _ => return Err(Box::new(NoOutputLayerAddedError)),

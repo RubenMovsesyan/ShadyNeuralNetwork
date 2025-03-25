@@ -48,6 +48,7 @@ fn create_bind_groups(
     loss_function_info_buffer: &Buffer,
     expected_values_buffer: &Buffer,
     learning_rate_buffer: &Buffer,
+    bias_gradient_buffer: &Buffer,
 ) -> (
     (BindGroupLayout, BindGroup),
     (BindGroupLayout, BindGroup),
@@ -110,7 +111,9 @@ fn create_bind_groups(
             7,
             gradient_coefficient_buffer,
             Bbt::Storage { read_only: true }
-        )
+        ),
+        (8, bias_gradient_buffer, Bbt::Storage { read_only: false }),
+        (9, bias_buffer, Bbt::Storage { read_only: false })
     );
 
     let (learning_rate_bind_group_layout, learning_rate_bind_group) = create_buffer_bind_group!(
@@ -136,6 +139,7 @@ fn create_buffers(
     feed_forward_input: &FeedForwardConnection,
     num_outputs: u64,
 ) -> (
+    Buffer,
     Buffer,
     Buffer,
     Buffer,
@@ -246,6 +250,13 @@ fn create_buffers(
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
     }));
 
+    let bias_gradient_buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("Output Layer Bias Gradient Buffer"),
+        mapped_at_creation: false,
+        size: num_outputs * std::mem::size_of::<f32>() as u64,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+    });
+
     (
         intermediary_buffer,
         output_buffer,
@@ -257,6 +268,7 @@ fn create_buffers(
         loss_function_buffer,
         loss_function_info_buffer,
         expected_values_buffer,
+        bias_gradient_buffer,
         gradient_back_prop_buffer,
         dimensions_buffer,
         gradient_coefficient_buffer,
@@ -428,6 +440,7 @@ impl OutputLayer {
             loss_function_buffer,
             loss_function_info_buffer,
             expected_values_buffer,
+            bias_gradient_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
             gradient_coefficient_buffer,
@@ -479,6 +492,7 @@ impl OutputLayer {
             &loss_function_info_buffer,
             &expected_values_buffer,
             learning_rate_buffer,
+            &bias_gradient_buffer,
         );
 
         let (feed_forward_pipeline, loss_function_pipeline, back_propogation_pipeline) =
@@ -556,6 +570,7 @@ impl OutputLayer {
             loss_function_buffer,
             loss_function_info_buffer,
             expected_values_buffer,
+            bias_gradient_buffer,
             gradient_back_prop_buffer,
             dimensions_buffer,
             gradient_coefficient_buffer,
@@ -603,6 +618,7 @@ impl OutputLayer {
             &loss_function_info_buffer,
             &expected_values_buffer,
             learning_rate_buffer,
+            &bias_gradient_buffer,
         );
 
         let (feed_forward_pipeline, loss_function_pipeline, back_propogation_pipeline) =
@@ -935,6 +951,13 @@ impl BackPropogationLayer for OutputLayer {
             compute_pass.dispatch_workgroups(dispatch_size, 1, 1);
         }
 
+        // let back_prop = read_buffer(
+        //     &self.gradient_back_prop_buffer,
+        //     self.num_inputs * std::mem::size_of::<f32>() as u64,
+        //     device,
+        //     &mut encoder,
+        // );
+
         encoder.insert_debug_marker("Sync Point: Output Loss Pipeline Complete");
         device.poll(Maintain::Wait);
 
@@ -997,5 +1020,7 @@ impl BackPropogationLayer for OutputLayer {
         device.poll(Maintain::Wait);
 
         queue.submit(Some(encoder.finish()));
+
+        // print_buffer(&back_prop, device, "Output Layer Gradient Coeff: ");
     }
 }

@@ -38,6 +38,7 @@ const MAE: u32 = 3; // Mean Absolute Error,
 const HUBER: u32 = 4; // Smooth mean absolute error
 const LOG_COSH: u32 = 5;
 const QUANTILE: u32 = 6;
+const DIFF: u32 = 7;
 
 // Helper functions to compute the loss and the gradient
 
@@ -61,6 +62,14 @@ fn binary_cross_entropy_loss(predicted: f32, expected: f32) -> f32 {
     let part_2 = (1.0 - expected) * log(1.0 - predicted);
 
     return -1.0 * (part_1 + part_2);
+}
+
+fn log_loss(predicted: f32, expected: f32) -> f32 {
+    return -expected * log(predicted);
+}
+
+fn log_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return predicted - expected;
 }
 
 // Hinge Loss
@@ -117,6 +126,15 @@ fn quantile_loss(predicted: f32, expexted: f32) -> f32 {
     return 0.0;
 }
 
+// Diff Loss
+fn diff_loss_gradient(predicted: f32, expected: f32) -> f32 {
+    return 1.0;
+}
+
+fn diff_loss(predicted: f32, expected: f32) -> f32 {
+    return predicted - expected;
+}
+
 @compute @workgroup_size(256)
 fn output_layer_loss_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
@@ -131,14 +149,11 @@ fn output_layer_loss_main(
     if (row < num_outputs) {
         let predicted = output[row];
         let expected = expected_values_buffer[row];
-        // This is the derivative of the loss function
-        // This is the first level of the gradient coefficient
-        // dJ/do_N
 
         switch loss_function_info {
             case LOG_LOSS: {
-                loss_function_buffer[row] = binary_cross_entropy_loss(predicted, expected);
-                gradient_coefficient[row] = binary_cross_entropy_loss_gradient(predicted, expected);
+                loss_function_buffer[row] = log_loss(predicted, expected);
+                gradient_coefficient[row] = log_loss_gradient(predicted, expected);
             }
             case HINGE_LOSS: {
                 loss_function_buffer[row] = hinge_loss(predicted, expected);
@@ -179,7 +194,8 @@ fn output_layer_loss_main(
         // [ x y z ] <- this is the current coefficient
         var sum: f32 = 0.0;
         for (var k: u32 = 0; k < num_outputs; k++) {
-            let index = row * num_outputs + k;
+            // let index = row * num_outputs + k;
+            let index = k * num_inputs + row;
             sum += weights[index] * gradient_coefficient[k];
         }
 

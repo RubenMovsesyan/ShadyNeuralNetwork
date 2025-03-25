@@ -159,6 +159,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "damage"
+version = "0.1.0"
+
+[[package]]
 name = "data_generator"
 version = "0.1.0"
 
@@ -316,6 +320,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91"
 dependencies = [
  "bitflags 2.9.0",
+]
+
+[[package]]
+name = "gpu_math"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "pollster",
+ "rand",
+ "wgpu",
 ]
 
 [[package]]
@@ -815,6 +829,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcf8323ef1faaee30a44a340193b1ac6814fd9b7b4e88e9d4519a3e4abe1cfd"
 
 [[package]]
+name = "snn"
+version = "0.1.0"
+dependencies = [
+ "damage",
+ "gpu_math",
+ "pollster",
+ "rand",
+ "wgpu",
+]
+
+[[package]]
 name = "spirv"
 version = "0.3.0+sdk-1.3.268.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1027,9 +1052,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu"
-version = "24.0.1"
+version = "24.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47f55718f85c2fa756edffa0e7f0e0a60aba463d1362b57e23123c58f035e4b6"
+checksum = "35904fb00ba2d2e0a4d002fcbbb6e1b89b574d272a50e5fc95f6e81cf281c245"
 dependencies = [
  "arrayvec",
  "bitflags 2.9.0",

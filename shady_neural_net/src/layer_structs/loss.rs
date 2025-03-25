@@ -8,6 +8,7 @@ pub enum LossFunction {
     Huber, // Smooth mean absolute error
     LogCosh,
     Quantile,
+    Diff,
 }
 
 impl LossFunction {
@@ -22,6 +23,7 @@ impl LossFunction {
                 Huber => 4,
                 LogCosh => 5,
                 Quantile => 6,
+                Diff => 7,
             },
         }
     }
