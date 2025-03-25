@@ -1,6 +1,4 @@
-use std::f32::consts::PI;
 use std::fmt::Display;
-use std::fs::write;
 use std::ops::{Index, IndexMut};
 use std::rc::Rc;
 
@@ -2251,7 +2249,6 @@ impl Matrix {
                 rows,
                 cols,
                 device,
-                transpose,
                 queue,
                 bind_group,
                 elem_mult_pipeline,
