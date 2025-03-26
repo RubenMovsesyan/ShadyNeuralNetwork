@@ -29,6 +29,8 @@ struct NeuralNet {
     z1_d_relu: Matrix,
     relu: usize,
     d_relu: usize,
+    argmax: usize,
+    abs: usize,
     a1: Matrix,
     z2: Matrix,
     z2_dotted: Matrix,
@@ -50,6 +52,8 @@ struct NeuralNet {
     // Updating paramters
     b1_sub: Matrix,
     b2_sub: Matrix,
+
+    diff_into: Matrix,
 
     // wgpu
     device: Rc<Device>,
@@ -91,8 +95,11 @@ impl NeuralNet {
         let (w1, b1, w2, b2) = NeuralNet::init_params(&device, &queue);
 
         // Create the gradient matrices for the weights and biases
-        let dw1 = Matrix::with_shape((w1.rows(), w1.cols()));
-        let dw2 = Matrix::with_shape((w2.rows(), w2.cols()));
+        let mut dw1 = Matrix::with_shape((w1.rows(), w1.cols()));
+        let mut dw2 = Matrix::with_shape((w2.rows(), w2.cols()));
+
+        dw1 = dw1.buf(device.clone(), queue.clone());
+        dw2 = dw2.buf(device.clone(), queue.clone());
 
         let mut z1 = Matrix::with_shape((w1.rows(), NUM_INPUTS));
         let mut z1_dotted = Matrix::with_shape((z1.rows(), z1.cols()));
@@ -125,6 +132,10 @@ impl NeuralNet {
         a2 = a2.buf(device.clone(), queue.clone());
         dz2 = dz2.buf(device.clone(), queue.clone());
 
+        let argmax = a2
+            .add_custom_single_op_pipeline(include_wgsl!("shaders/argmax_y.wgsl"))
+            .expect("Failed");
+
         let mut w2t_dotted = Matrix::with_shape((w2.cols(), dz2.cols()));
         w2t_dotted = w2t_dotted.buf(device.clone(), queue.clone());
 
@@ -155,6 +166,12 @@ impl NeuralNet {
         }
         b2_sub = b2_sub.buf(device.clone(), queue.clone());
 
+        let mut diff_into = Matrix::with_shape((one_hot_y.rows(), one_hot_y.cols()));
+        diff_into = diff_into.buf(device.clone(), queue.clone());
+        let abs = diff_into
+            .add_custom_single_op_pipeline(include_wgsl!("shaders/abs.wgsl"))
+            .expect("Failed");
+
         Self {
             w1,
             b1,
@@ -167,6 +184,8 @@ impl NeuralNet {
             z1,
             relu,
             d_relu,
+            argmax,
+            abs,
             z1_dotted,
             z1_d_relu,
             a1,
@@ -183,6 +202,7 @@ impl NeuralNet {
             x,
             b1_sub,
             b2_sub,
+            diff_into,
             device,
             queue,
         }
@@ -254,17 +274,37 @@ impl NeuralNet {
     fn back_prop(&mut self) -> Result<(), Box<dyn Error>> {
         Matrix::sub_into(&self.a2, &self.one_hot_y, &mut self.dz2)?;
         Matrix::dot_into(&self.dz2, &self.a1.transposed(), &mut self.dz2_dotted)?;
-        Matrix::mult_into(&self.dz2_dotted, 1.0 / NUM_INPUTS as f32, &mut self.dw1)?;
+        Matrix::mult_into(&self.dz2_dotted, 1.0 / NUM_INPUTS as f32, &mut self.dw2)?;
         self.db2 = self.dz2.sum()? / NUM_INPUTS as f32;
 
         Matrix::dot_into(&self.w2.transposed(), &self.dz2, &mut self.w2t_dotted)?;
         Matrix::run_custom_single_op_pipeline_into(&self.z1, self.d_relu, &mut self.z1_d_relu)?;
         Matrix::elem_mult_into(&self.w2t_dotted, &self.z1_d_relu, &mut self.dz1)?;
-        Matrix::dot_into(&self.dz1, &self.x, &mut self.dz1_dotted)?;
+        Matrix::dot_into(&self.dz1, &self.x.transposed(), &mut self.dz1_dotted)?;
         Matrix::mult_into(&self.dz1_dotted, 1.0 / NUM_INPUTS as f32, &mut self.dw1)?;
         self.db1 = self.dz1.sum()? / NUM_INPUTS as f32;
 
         Ok(())
+    }
+
+    fn update_params(&mut self, alpha: f32) -> Result<(), Box<dyn Error>> {
+        self.w1 = self.w1.sub(&self.dw1.mult(alpha)?)?;
+        self.b1 = self.b1.sub(&self.b1_sub.mult(alpha * self.db1)?)?;
+
+        self.w2 = self.w2.sub(&self.dw2.mult(alpha)?)?;
+        self.b2 = self.b2.sub(&self.b2_sub.mult(alpha * self.db2)?)?;
+        Ok(())
+    }
+
+    fn get_accuracy(&mut self) -> Result<f32, Box<dyn Error>> {
+        let argmax = self.a2.run_custom_single_op_pipeline(self.argmax)?;
+        Matrix::sub_into(&self.a2, &self.one_hot_y, &mut self.diff_into)?;
+        let diff = self
+            .diff_into
+            .run_custom_single_op_pipeline(self.abs)?
+            .sum()?;
+
+        Ok((NUM_INPUTS as f32 * 2.0 - diff) / (NUM_INPUTS as f32 * 2.0))
     }
 }
 
@@ -280,117 +320,26 @@ fn one_hot_y(y: &Matrix) -> Matrix {
     output
 }
 
-fn feed_forward(
-    w1: &Matrix,
-    b1: &Matrix,
-    w2: &Matrix,
-    b2: &Matrix,
-    x: &Matrix,
-) -> Result<(Matrix, Matrix, Matrix, Matrix), Box<dyn Error>> {
-    let mut z1 = w1.dot(x)?.vectored_add(b1)?;
-    let relu = z1
-        .add_custom_single_op_pipeline(include_wgsl!("shaders/relu.wgsl"))
-        .expect("Failed");
-    let a1 = z1.run_custom_single_op_pipeline(relu)?;
+fn gradient_descent(label_inputs: Matrix, training_inputs: Matrix) -> Result<(), Box<dyn Error>> {
+    let mut neural_network = NeuralNet::new();
+    println!("Created Neural Network");
+    neural_network.set_labels(label_inputs);
+    println!("Set Labels");
+    neural_network.set_inputs(training_inputs);
+    println!("Set Inputs");
 
-    let mut z2 = w2.dot(&a1)?.vectored_add(b2)?;
-    let softmax = z2
-        .add_custom_single_op_pipeline(include_wgsl!("shaders/softmax.wgsl"))
-        .expect("Failed");
-    let a2 = z2.run_custom_single_op_pipeline(softmax)?;
+    for i in 0..500 {
+        neural_network.feed_forward()?;
+        neural_network.back_prop()?;
+        neural_network.update_params(0.1)?;
 
-    Ok((z1, a1, z2, a2))
-}
-
-fn back_prop(
-    z1: &mut Matrix,
-    a1: &Matrix,
-    z2: &Matrix,
-    a2: &Matrix,
-    w2: &Matrix,
-    x: &Matrix,
-    y: &Matrix,
-) -> Result<(Matrix, f32, Matrix, f32), Box<dyn Error>> {
-    let dz2 = a2.sub(y)?;
-    let dw2 = dz2.dot(&a1.transposed())?.mult(1.0 / NUM_INPUTS as f32)?;
-    let db2 = dz2.sum()? / NUM_INPUTS as f32;
-
-    let d_relu = z1
-        .add_custom_single_op_pipeline(include_wgsl!("shaders/d_relu.wgsl"))
-        .expect("Failed");
-    let dz1 = w2
-        .transposed()
-        .dot(&dz2)?
-        .elem_mult(&z1.run_custom_single_op_pipeline(d_relu)?)?;
-    let dw1 = dz1.dot(&x.transposed())?.mult(1.0 / NUM_INPUTS as f32)?;
-    let db1 = dz1.sum()? / NUM_INPUTS as f32;
-
-    Ok((dw1, db1, dw2, db2))
-}
-
-fn update_params(
-    w1: &mut Matrix,
-    b1: &mut Matrix,
-    w2: &mut Matrix,
-    b2: &mut Matrix,
-    dw1: &Matrix,
-    db1: f32,
-    dw2: &Matrix,
-    db2: f32,
-    alpha: f32,
-) -> Result<(), Box<dyn Error>> {
-    *w1 = w1.sub(&dw1.mult(alpha)?)?;
-    let mut b1_sub = Matrix::with_shape((b1.rows(), b1.cols()));
-    for i in 0..b1_sub.rows() {
-        for j in 0..b1_sub.cols() {
-            b1_sub[(i, j)] = 1.0;
+        if i % 10 == 0 {
+            println!("Iteration: {i}");
+            println!("Accuracy: {}", neural_network.get_accuracy()?);
         }
     }
-    b1_sub = b1_sub.buf(b1.device()?.clone(), b1.queue()?.clone());
-    *b1 = b1.sub(&b1_sub.mult(alpha * db1)?)?;
-
-    *w2 = w2.sub(&dw2.mult(alpha)?)?;
-    let mut b2_sub = Matrix::with_shape((b2.rows(), b2.cols()));
-    for i in 0..b2_sub.rows() {
-        for j in 0..b2_sub.cols() {
-            b2_sub[(i, j)] = 1.0;
-        }
-    }
-    b2_sub = b2_sub.buf(b2.device()?.clone(), b2.queue()?.clone());
-    *b2 = b2.sub(&b2_sub.mult(alpha * db2)?)?;
-
     Ok(())
 }
-
-// fn gradient_descent(
-//     x: &Matrix,
-//     y: &Matrix,
-//     iterations: usize,
-//     alpha: f32,
-//     device: Rc<Device>,
-//     queue: Rc<Queue>,
-// ) -> Result<f32, Box<dyn Error>> {
-// let (mut w1, mut b1, mut w2, mut b2) = init_params(device.clone(), queue.clone());
-
-// for i in 0..iterations {
-//     let (mut z1, a1, z2, a2) = feed_forward(&w1, &b1, &w2, &b2, x)?;
-//     let (dw1, db1, dw2, db2) = back_prop(&mut z1, &a1, &z2, &a2, &w2, x, y)?;
-//     update_params(
-//         &mut w1, &mut b1, &mut w2, &mut b2, &dw1, db1, &dw2, db2, alpha,
-//     )?;
-
-//     if i % 10 == 0 {
-//         println!("Iteration: {i}");
-//         // println!("W1: {}", w1);
-//         // println!("B1: {}", b1);
-//         // println!("W2: {}", w2);
-//         // println!("B2: {}", b2);
-//         println!("Diff: {}", a2.sub(y)?.sum()?);
-//     }
-// }
-
-// todo!()
-// }
 
 fn main() {
     let data = parse_csv("../../test_files/mnist_train.csv").expect("Failed");
@@ -431,9 +380,8 @@ fn main() {
         }
     }
 
-    // training_inputs = training_inputs
-    //     .buf(device.clone(), queue.clone())
-    //     .transposed();
-
-    // gradient_descent(&training_inputs, &label_inputs, 500, 0.1, device, queue).expect("Failed");
+    match gradient_descent(label_inputs, training_inputs.transposed()) {
+        Ok(_) => println!("Finished!"),
+        Err(err) => println!("Error: {err}"),
+    };
 }
