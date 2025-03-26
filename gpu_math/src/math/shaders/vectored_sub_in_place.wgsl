@@ -1,9 +1,9 @@
-// X = A + B
+// A = A - B
 
 // Matirx A ------------------------------------
 // Buffer of the A matrix
 @group(0) @binding(0)
-var<storage, read> matrix_a: array<f32>;
+var<storage, read_write> matrix_a: array<f32>;
 
 // Uniform of the dimensions of the A matrix
 @group(0) @binding(1)
@@ -26,21 +26,8 @@ var<uniform> b_dimensions: vec2<u32>;
 @group(1) @binding(2)
 var<uniform> b_transpose: u32;
 
-// Matirx X ------------------------------------
-// Buffer of the output matrix
-@group(2) @binding(0)
-var<storage, read_write> matrix_x: array<f32>;
-
-// Uniform of the output dimensions
-@group(2) @binding(1)
-var<uniform> output_dimensions: vec2<u32>;
-
-// Uniform of the transpose of the A matrix
-@group(2) @binding(2)
-var<uniform> x_transpose: u32;
-
 @compute @workgroup_size(16, 16)
-fn vectored_add_main(
+fn vectored_sub_in_place_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
@@ -52,13 +39,9 @@ fn vectored_add_main(
     let other_rows = b_dimensions.x;
     let other_cols = b_dimensions.y;
 
-    let output_rows = output_dimensions.x;
-    let output_cols = output_dimensions.y;
-
-    if (row < output_rows && col < output_cols) {
+    if (row < a_rows && col < a_cols) {
         var a_index: u32 = 0;
         var other_index: u32 = 0;
-        var x_index: u32 = 0;
 
         if (a_transpose == 1) {
             a_index = row + a_rows * col;
@@ -66,20 +49,14 @@ fn vectored_add_main(
             a_index = row * a_cols + col;
         }
 
-        if (x_transpose == 1) {
-            x_index = row + output_rows * col;
-        } else {
-            x_index = row * output_cols + col;
-        }
-
         if (other_rows == a_rows) {
-            matrix_x[x_index] = matrix_a[a_index] + matrix_b[row];
+            matrix_a[a_index] -= matrix_b[row];
         } else if (other_cols == a_cols) {
-            matrix_x[x_index] = matrix_a[a_index] + matrix_b[col];
+            matrix_a[a_index] -= matrix_b[col];
         } else if (other_rows == a_cols) {
-            matrix_x[x_index] = matrix_a[a_index] + matrix_b[col];
+            matrix_a[a_index] -= matrix_b[col];
         } else {
-            matrix_x[x_index] = matrix_a[a_index] + matrix_b[row];
+            matrix_a[a_index] -= matrix_b[row];
         }
     }
 

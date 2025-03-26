@@ -55,27 +55,34 @@ struct GPUMatrix {
 
     // Adding
     add_pipeline: ComputePipeline,
+    add_in_place_pipeline: ComputePipeline,
 
     // Subtracting
     sub_pipeline: ComputePipeline,
+    sub_in_place_pipeline: ComputePipeline,
 
     // Multiplying
     mult_pipeline: ComputePipeline,
+    mult_in_place_pipeline: ComputePipeline,
 
     // Element-wise multiplication
     elem_mult_pipeline: ComputePipeline,
+    elem_mult_in_place_pipeline: ComputePipeline,
 
     // Exponential
     exp_pipeline: ComputePipeline,
+    exp_in_place_pipeline: ComputePipeline,
 
     // Summing all elements
     sum_pipeline: ComputePipeline,
 
     // Vectored Adding
     vectored_add_pipeline: ComputePipeline,
+    vectored_add_in_place_pipeline: ComputePipeline,
 
     // Vectored Subtracting
     vectored_sub_pipeline: ComputePipeline,
+    vectored_sub_in_place_pipeline: ComputePipeline,
 
     // Custom Pipelines
     custom_pipelines: Vec<ComputePipeline>,
@@ -174,7 +181,8 @@ impl GPUMatrix {
             "Writable Bind Group",
             (0, &buffer, Bbt::Storage { read_only: false }),
             (1, &dimensions, Bbt::Uniform),
-            (2, &transpose, Bbt::Uniform)
+            (2, &transpose, Bbt::Uniform),
+            (3, &scalar_buffer, Bbt::Uniform)
         );
 
         // Create the pipeline layout for each of the operation pipelines
@@ -188,12 +196,27 @@ impl GPUMatrix {
             push_constant_ranges: &[],
         });
 
-        // Create the pipeline for a single operation
+        // Create a pipeline layout for in place operations
+        let in_place_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Matrix In Place Operations Pipeline Layout"),
+            bind_group_layouts: &[&writable_bind_group_layout, &bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        // Create the pipeline layout for a single operation
         let single_op_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Single Op Pipeline Layout"),
             bind_group_layouts: &[&bind_group_layout, &writable_bind_group_layout],
             push_constant_ranges: &[],
         });
+
+        // Create the pipeline layout for a single operation in place
+        let single_op_in_place_pipeline_layout =
+            device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("Single Op In Place Pipeline Layout"),
+                bind_group_layouts: &[&writable_bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         // Create the pipeline layout for summing
         let sum_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -230,6 +253,20 @@ impl GPUMatrix {
             })
         };
 
+        // Create the pipeline for adding in place
+        let add_in_place_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/add_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Add In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("add_in_place_main"),
+            })
+        };
+
         // Create the compute pipeline for vectored adding
         let vectored_add_pipeline = {
             let shader = device.create_shader_module(include_wgsl!("shaders/vectored_add.wgsl"));
@@ -241,6 +278,21 @@ impl GPUMatrix {
                 cache: None,
                 compilation_options: PipelineCompilationOptions::default(),
                 entry_point: Some("vectored_add_main"),
+            })
+        };
+
+        // Create the compute pipeline for vectored adding in place
+        let vectored_add_in_place_pipeline = {
+            let shader =
+                device.create_shader_module(include_wgsl!("shaders/vectored_add_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Vectored Add In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("vectored_add_in_place_main"),
             })
         };
 
@@ -258,6 +310,20 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for subtracting in place
+        let sub_in_place_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/sub_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Sub In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("sub_in_place_main"),
+            })
+        };
+
         // Create the compute pipeline for vectored subtracting
         let vectored_sub_pipeline = {
             let shader = device.create_shader_module(include_wgsl!("shaders/vectored_sub.wgsl"));
@@ -269,6 +335,21 @@ impl GPUMatrix {
                 cache: None,
                 compilation_options: PipelineCompilationOptions::default(),
                 entry_point: Some("vectored_sub_main"),
+            })
+        };
+
+        // Create the compute pipeline for the vectored subtracing in place
+        let vectored_sub_in_place_pipeline = {
+            let shader =
+                device.create_shader_module(include_wgsl!("shaders/vectored_sub_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Vectored Sub In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("vectored_sub_in_place_main"),
             })
         };
 
@@ -286,6 +367,20 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for multiplying in place by a scalar
+        let mult_in_place_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/mult_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Mult In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&single_op_in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("mult_in_place_main"),
+            })
+        };
+
         // Create the compute pipeline for element-wise multiplication
         let elem_mult_pipeline = {
             let shader = device.create_shader_module(include_wgsl!("shaders/elem_mult.wgsl"));
@@ -300,6 +395,21 @@ impl GPUMatrix {
             })
         };
 
+        // Create the compute pipeline for element-wise multiplication in place
+        let elem_mult_in_place_pipeline = {
+            let shader =
+                device.create_shader_module(include_wgsl!("shaders/elem_mult_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Elem Mult In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("elem_mult_in_place_main"),
+            })
+        };
+
         // Create the compute pipeline for exponenting the matrix
         let exp_pipeline = {
             let shader = device.create_shader_module(include_wgsl!("shaders/exp.wgsl"));
@@ -311,6 +421,20 @@ impl GPUMatrix {
                 cache: None,
                 compilation_options: PipelineCompilationOptions::default(),
                 entry_point: Some("exp_main"),
+            })
+        };
+
+        // Create the compute pipeline for exponenting the matrix in place
+        let exp_in_place_pipeline = {
+            let shader = device.create_shader_module(include_wgsl!("shaders/exp_in_place.wgsl"));
+
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some("Matrix Exp In Place Compute Pipeline"),
+                module: &shader,
+                layout: Some(&single_op_in_place_pipeline_layout),
+                cache: None,
+                compilation_options: PipelineCompilationOptions::default(),
+                entry_point: Some("exp_in_place_main"),
             })
         };
 
@@ -342,13 +466,20 @@ impl GPUMatrix {
             writable_bind_group,
             dot_pipeline,
             add_pipeline,
+            add_in_place_pipeline,
             sub_pipeline,
+            sub_in_place_pipeline,
             mult_pipeline,
+            mult_in_place_pipeline,
             elem_mult_pipeline,
+            elem_mult_in_place_pipeline,
             exp_pipeline,
+            exp_in_place_pipeline,
             sum_pipeline,
             vectored_add_pipeline,
+            vectored_add_in_place_pipeline,
             vectored_sub_pipeline,
+            vectored_sub_in_place_pipeline,
             custom_pipelines: Vec::new(),
             multi_op_pipeline_layout: pipeline_layout,
             single_op_pipeline_layout,
@@ -922,6 +1053,101 @@ impl Matrix {
         }
     }
 
+    /// Performs an addition in place with the matrix described in `other`
+    /// If the matrix is a `Matrix::CPU` it will do a sequential computation
+    /// If the matrix is a `Matrix::GPU` it will do a parallel computation
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - reference to another matrix to do the addition with
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the addition was successful and `Err` if the addition failed
+    pub fn add_in_place(&mut self, other: &Matrix) -> Result<(), MatrixAddError> {
+        match self {
+            Matrix::GPU(GPUMatrix {
+                rows,
+                cols,
+                device,
+                queue,
+                writable_bind_group,
+                add_in_place_pipeline,
+                ..
+            }) => {
+                let (b_rows, b_cols, b_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+                };
+
+                if *rows != *b_rows || *cols != *b_cols {
+                    return Err(MatrixAddError(String::from(
+                        "Matrix Rows and Colums do not match",
+                    )));
+                }
+
+                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Matrix Add In Place Command Encoder"),
+                });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (*rows as u32, *cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Add In Place Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&add_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &*writable_bind_group, &[]);
+                    compute_pass.set_bind_group(1, b_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                device.poll(Maintain::Wait);
+                queue.submit(Some(encoder.finish()));
+
+                return Ok(());
+            }
+            Matrix::CPU(_) => {}
+        }
+
+        let (b_rows, b_cols) = match other {
+            Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+            _ => {
+                return Err(MatrixAddError(String::from("Matrix Variants do not match")));
+            }
+        };
+
+        if self.rows() != *b_rows || self.cols() != *b_cols {
+            return Err(MatrixAddError(String::from(
+                "Matrix Rows and Colums do not match",
+            )));
+        }
+
+        for i in 0..self.rows() {
+            for j in 0..self.cols() {
+                self[(i, j)] += other[(i, j)];
+            }
+        }
+
+        Ok(())
+    }
+
     /// Performs the addition with the matrices descibed in `source1` and `source2`
     /// and stores the result in the `destination` matrix
     /// If the matrix is a `Matrix::CPU` it will do a sequential computation
@@ -1201,6 +1427,131 @@ impl Matrix {
         }
     }
 
+    /// Performs a vectored addition on the current matrix given the `other` matrix in place
+    /// The other matrix must be a vector with either the same number of rows or columns as the
+    /// current matrix. If the rows and columns are the same it will default to the orientation that
+    /// the `other` matrix is in.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - vector to use to add to this matrix
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the addition was successful and `Err` if the addition failed
+    pub fn vectored_add_in_place(&mut self, other: &Matrix) -> Result<(), MatrixAddError> {
+        match self {
+            Matrix::CPU(_) => {}
+            Matrix::GPU(gpu_matrix) => {
+                let (other_rows, other_cols, other_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+                };
+
+                // Check if the other matrix is a vector with the correct size
+                // Check if the other is a vector in the first place
+                if !other.is_vector() {
+                    return Err(MatrixAddError(String::from("Matrix 2 is not a Vector")));
+                }
+
+                if !(*other_rows == gpu_matrix.rows
+                    || *other_cols == gpu_matrix.cols
+                    || *other_rows == gpu_matrix.cols
+                    || *other_cols == gpu_matrix.rows)
+                {
+                    return Err(MatrixAddError(String::from(
+                        "Vector Dimensions do no match matrix",
+                    )));
+                }
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Vectored Add In Place Command Encoder"),
+                        });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Vectored Add In Place Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.vectored_add_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.writable_bind_group, &[]);
+                    compute_pass.set_bind_group(1, other_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                return Ok(());
+            }
+        }
+
+        let (other_rows, other_cols) = match other {
+            Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+            _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+        };
+
+        // Check if the other matrix is a vector with the correct size
+        // Check if the other is a vector in the first place
+        if !other.is_vector() {
+            return Err(MatrixAddError(String::from("Matrix 2 is not a Vector")));
+        }
+
+        // Check the rows first
+        if *other_rows == self.rows() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] += other[(i, 0)];
+                }
+            }
+        // Check the columns before checking the transposes
+        } else if *other_cols == self.cols() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] += other[(0, j)];
+                }
+            }
+        } else if *other_rows == self.cols() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] += other[(j, 0)];
+                }
+            }
+        } else if *other_cols == self.rows() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] += other[(0, i)];
+                }
+            }
+        } else {
+            return Err(MatrixAddError(String::from(
+                "Vector Dimensions do no match matrix",
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Performs a vector addition with the matrix described in `source` and the vector described in `vector`
     /// and stored the output into `destination`
     ///
@@ -1319,7 +1670,7 @@ impl Matrix {
                     gpu_matrix
                         .device
                         .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("Matrix Vectored Add Command Encoder"),
+                            label: Some("Matrix Vectored Add Into Command Encoder"),
                         });
 
                 {
@@ -1330,7 +1681,7 @@ impl Matrix {
 
                     // Begin the compute pass
                     let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("Matrix Vectored Add Compute Pass"),
+                        label: Some("Matrix Vectored Add Into Compute Pass"),
                         timestamp_writes: None,
                     });
 
@@ -1460,6 +1811,101 @@ impl Matrix {
                 Ok(Matrix::GPU(output))
             }
         }
+    }
+
+    /// Performs an subtraction in place with the matrix described in `other`
+    /// If the matrix is a `Matrix::CPU` it will do a sequential computation
+    /// If the matrix is a `Matrix::GPU` it will do a parallel computation
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - reference to another matrix to do the subtraction with
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the subtraction was successful and `Err` if the subtraction failed
+    pub fn sub_in_place(&mut self, other: &Matrix) -> Result<(), MatrixAddError> {
+        match self {
+            Matrix::GPU(GPUMatrix {
+                rows,
+                cols,
+                device,
+                queue,
+                writable_bind_group,
+                sub_in_place_pipeline,
+                ..
+            }) => {
+                let (b_rows, b_cols, b_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+                };
+
+                if *rows != *b_rows || *cols != *b_cols {
+                    return Err(MatrixAddError(String::from(
+                        "Matrix Rows and Colums do not match",
+                    )));
+                }
+
+                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Matrix Sub In Place Command Encoder"),
+                });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (*rows as u32, *cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Sub In Place Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&sub_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &*writable_bind_group, &[]);
+                    compute_pass.set_bind_group(1, b_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                device.poll(Maintain::Wait);
+                queue.submit(Some(encoder.finish()));
+
+                return Ok(());
+            }
+            Matrix::CPU(_) => {}
+        }
+
+        let (b_rows, b_cols) = match other {
+            Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+            _ => {
+                return Err(MatrixAddError(String::from("Matrix Variants do not match")));
+            }
+        };
+
+        if self.rows() != *b_rows || self.cols() != *b_cols {
+            return Err(MatrixAddError(String::from(
+                "Matrix Rows and Colums do not match",
+            )));
+        }
+
+        for i in 0..self.rows() {
+            for j in 0..self.cols() {
+                self[(i, j)] -= other[(i, j)];
+            }
+        }
+
+        Ok(())
     }
 
     /// Performs the subtracion with the matrices descibed in `source1` and `source2`
@@ -1706,7 +2152,7 @@ impl Matrix {
                     gpu_matrix
                         .device
                         .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("Matrix Vectored Add Command Encoder"),
+                            label: Some("Matrix Vectored Sub Command Encoder"),
                         });
 
                 {
@@ -1717,7 +2163,7 @@ impl Matrix {
 
                     // Begin the compute pass
                     let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("Matrix Vectored Add Compute Pass"),
+                        label: Some("Matrix Vectored Sub Compute Pass"),
                         timestamp_writes: None,
                     });
 
@@ -1739,6 +2185,131 @@ impl Matrix {
                 Ok(Matrix::GPU(output))
             }
         }
+    }
+
+    /// Performs a vectored subtraction on the current matrix given the `other` matrix in place
+    /// The other matrix must be a vector with either the same number of rows or columns as the
+    /// current matrix. If the rows and columns are the same it will default to the orientation that
+    /// the `other` matrix is in.
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - vector to use to add to this matrix
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the subtraction was successful and `Err` if the subtraction failed
+    pub fn vectored_sub_in_place(&mut self, other: &Matrix) -> Result<(), MatrixAddError> {
+        match self {
+            Matrix::CPU(_) => {}
+            Matrix::GPU(gpu_matrix) => {
+                let (other_rows, other_cols, other_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+                };
+
+                // Check if the other matrix is a vector with the correct size
+                // Check if the other is a vector in the first place
+                if !other.is_vector() {
+                    return Err(MatrixAddError(String::from("Matrix 2 is not a Vector")));
+                }
+
+                if !(*other_rows == gpu_matrix.rows
+                    || *other_cols == gpu_matrix.cols
+                    || *other_rows == gpu_matrix.cols
+                    || *other_cols == gpu_matrix.rows)
+                {
+                    return Err(MatrixAddError(String::from(
+                        "Vector Dimensions do no match matrix",
+                    )));
+                }
+
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Vectored Sub In Place Command Encoder"),
+                        });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Vectored Sub In Place Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.vectored_sub_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.writable_bind_group, &[]);
+                    compute_pass.set_bind_group(1, other_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                return Ok(());
+            }
+        }
+
+        let (other_rows, other_cols) = match other {
+            Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+            _ => return Err(MatrixAddError(String::from("Matrix Variants do not match"))),
+        };
+
+        // Check if the other matrix is a vector with the correct size
+        // Check if the other is a vector in the first place
+        if !other.is_vector() {
+            return Err(MatrixAddError(String::from("Matrix 2 is not a Vector")));
+        }
+
+        // Check the rows first
+        if *other_rows == self.rows() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] -= other[(i, 0)];
+                }
+            }
+        // Check the columns before checking the transposes
+        } else if *other_cols == self.cols() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] -= other[(0, j)];
+                }
+            }
+        } else if *other_rows == self.cols() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] -= other[(j, 0)];
+                }
+            }
+        } else if *other_cols == self.rows() {
+            for i in 0..self.rows() {
+                for j in 0..self.cols() {
+                    self[(i, j)] -= other[(0, i)];
+                }
+            }
+        } else {
+            return Err(MatrixAddError(String::from(
+                "Vector Dimensions do no match matrix",
+            )));
+        }
+
+        Ok(())
     }
 
     /// Performs a vector subtraction with the matrix described in `source` and the vector described in `vector`
@@ -1859,7 +2430,7 @@ impl Matrix {
                     gpu_matrix
                         .device
                         .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("Matrix Vectored Add Command Encoder"),
+                            label: Some("Matrix Vectored Sub Into Command Encoder"),
                         });
 
                 {
@@ -1870,7 +2441,7 @@ impl Matrix {
 
                     // Begin the compute pass
                     let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("Matrix Vectored Add Compute Pass"),
+                        label: Some("Matrix Vectored Sub Into Compute Pass"),
                         timestamp_writes: None,
                     });
 
@@ -1960,6 +2531,69 @@ impl Matrix {
                 gpu_matrix.queue.submit(Some(encoder.finish()));
 
                 Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
+    /// Performs a scalar multiplicaiton on the matrix in place
+    ///
+    /// # Arguments
+    ///
+    /// * `scalar` - scalar value to multiply matrix by
+    ///
+    /// # Returns
+    ///
+    /// `Result` wiht `Ok` if successful
+    pub fn mult_in_place(&mut self, scalar: f32) -> Result<(), MatrixMultError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                cpu_matrix
+                    .data
+                    .iter_mut()
+                    .for_each(|value| *value *= scalar);
+
+                Ok(())
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Mult In Place Command Encoder"),
+                        });
+
+                gpu_matrix.queue.write_buffer(
+                    &gpu_matrix.scalar_buffer,
+                    0,
+                    bytemuck::cast_slice(&[scalar]),
+                );
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Mult In Place Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.mult_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(())
             }
         }
     }
@@ -2186,6 +2820,107 @@ impl Matrix {
         }
     }
 
+    /// Performs an element-wise multiplication with the matrix described in `other` in place
+    /// If the matrix is a `Matrix::CPU` it will do a sequential computation
+    /// If the matrix is a `Matrix::GPU` it will do a parallel computation
+    ///
+    /// # Arguments
+    ///
+    /// * `other` - reference to another matrix to do the element-wise multiplication with
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the element-wise multiplication was successful and `Err` if the element-wise multiplication failed
+    pub fn elem_mult_in_place(&mut self, other: &Matrix) -> Result<(), MatrixMultError> {
+        match self {
+            Matrix::CPU(_) => {}
+            Matrix::GPU(GPUMatrix {
+                rows,
+                cols,
+                device,
+                queue,
+                writable_bind_group,
+                elem_mult_in_place_pipeline,
+                ..
+            }) => {
+                let (b_rows, b_cols, b_bind_group) = match other {
+                    Matrix::GPU(GPUMatrix {
+                        rows,
+                        cols,
+                        bind_group,
+                        ..
+                    }) => (rows, cols, bind_group),
+                    _ => {
+                        return Err(MatrixMultError(String::from(
+                            "Matrix Variants do not match",
+                        )));
+                    }
+                };
+
+                if *rows != *b_rows || *cols != *b_cols {
+                    return Err(MatrixMultError(String::from(
+                        "Matrix Rows and Colums do not match",
+                    )));
+                }
+
+                let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Matrix Elem Mult In Place Command Encoder"),
+                });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (*rows as u32, *cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Elem Mult In Place Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&elem_mult_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &*writable_bind_group, &[]);
+                    compute_pass.set_bind_group(1, b_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                device.poll(Maintain::Wait);
+                queue.submit(Some(encoder.finish()));
+
+                return Ok(());
+            }
+        }
+
+        let (b_rows, b_cols) = match other {
+            Matrix::CPU(CPUMatrix { rows, cols, .. }) => (rows, cols),
+            _ => {
+                return Err(MatrixMultError(String::from(
+                    "Matrix Variants do not match",
+                )));
+            }
+        };
+
+        if self.rows() != *b_rows || self.cols() != *b_cols {
+            return Err(MatrixMultError(String::from(
+                "Matrix Rows and Colums do not match",
+            )));
+        }
+
+        for i in 0..self.rows() {
+            for j in 0..self.cols() {
+                self[(i, j)] *= other[(i, j)];
+            }
+        }
+
+        Ok(())
+    }
+
     /// Performs an element-wise multiplication with the matrices described in `source1`
     /// and `source2` and stores it in `destination`
     /// If the matrix is a `Matrix::CPU` it will do a sequential computation
@@ -2298,7 +3033,7 @@ impl Matrix {
                 };
 
                 let mut encoder = device.create_command_encoder(&CommandEncoderDescriptor {
-                    label: Some("Matrix Elem Mult Command Encoder"),
+                    label: Some("Matrix Elem Mult Into Command Encoder"),
                 });
 
                 {
@@ -2309,7 +3044,7 @@ impl Matrix {
 
                     // Begin the compute pass
                     let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("Matrix Elem Mult Compute Pass"),
+                        label: Some("Matrix Elem Mult Into Compute Pass"),
                         timestamp_writes: None,
                     });
 
@@ -2393,6 +3128,60 @@ impl Matrix {
                 gpu_matrix.queue.submit(Some(encoder.finish()));
 
                 Ok(Matrix::GPU(output))
+            }
+        }
+    }
+
+    /// Performs the exponential operation on every element of the matrix in place
+    /// returning a matrix where every element is now e^element
+    ///
+    /// # Returns
+    ///
+    /// `Result` witha`Ok` if success or `MatrixExpError` if failed
+    pub fn exp_in_place(&mut self) -> Result<(), MatrixExpError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => {
+                cpu_matrix
+                    .data
+                    .iter_mut()
+                    .for_each(|value| *value = f32::exp(*value));
+
+                Ok(())
+            }
+            Matrix::GPU(gpu_matrix) => {
+                let mut encoder =
+                    gpu_matrix
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor {
+                            label: Some("Matrix Exp Command Encoder"),
+                        });
+
+                {
+                    let (dispatch_width, dispatch_height) = compute_workgroup_size_2d(
+                        (gpu_matrix.rows as u32, gpu_matrix.cols as u32),
+                        (WORK_GROUP_SIZE_2D, WORK_GROUP_SIZE_2D),
+                    );
+
+                    // Begin the compute pass
+                    let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Matrix Exp Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+                    // Set the pipeline
+                    compute_pass.set_pipeline(&gpu_matrix.exp_in_place_pipeline);
+
+                    // Set the bind groups
+                    compute_pass.set_bind_group(0, &gpu_matrix.writable_bind_group, &[]);
+
+                    // Dispatch the workgroups
+                    compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+                }
+
+                gpu_matrix.device.poll(Maintain::Wait);
+                gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                Ok(())
             }
         }
     }
