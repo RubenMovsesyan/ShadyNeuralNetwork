@@ -164,7 +164,6 @@ impl Layer {
         self.outputs
             .borrow_mut()
             .run_custom_single_op_pipeline_in_place(self.activation_function_index)?;
-
         Ok(())
     }
 
@@ -173,7 +172,7 @@ impl Layer {
         // inputs: &mut Matrix,
         next_layer_back_prop: &Matrix,
     ) -> Result<&Matrix, Box<dyn Error>> {
-        // println!("nlbp: {}", next_layer_back_prop);
+        // println!("nlbp: {}", next_layer_back_prop.sum()?);
         // Get the output gradient to find the weights gradient with
         match self.activation_function {
             ActivationFunction::Softmax => {
@@ -181,8 +180,9 @@ impl Layer {
                     &self.outputs.borrow(),
                     next_layer_back_prop,
                     self.activation_function_gradient_index,
-                    &mut self.output_gradient,
+                    &mut self.inner_gradient,
                 )?;
+                // Matrix::mult_into(next_layer_back_prop, 1.0, &mut self.output_gradient)?;
             }
             _ => {
                 Matrix::run_custom_single_op_pipeline_into(
@@ -190,14 +190,21 @@ impl Layer {
                     self.activation_function_gradient_index,
                     &mut self.output_gradient,
                 )?;
+
+                Matrix::elem_mult_into(
+                    next_layer_back_prop,
+                    &self.output_gradient,
+                    &mut self.inner_gradient,
+                )?;
             }
         }
 
-        Matrix::elem_mult_into(
-            next_layer_back_prop,
-            &self.output_gradient,
-            &mut self.inner_gradient,
-        )?;
+        // println!(
+        //     "Shape: {} {}",
+        //     self.inner_gradient.rows(),
+        //     self.inner_gradient.cols()
+        // );
+        // println!("dZ: {}", self.inner_gradient.sum()?);
 
         self.inputs.borrow_mut().transpose_in_place();
         Matrix::dot_into(
@@ -210,7 +217,7 @@ impl Layer {
         self.weights_gradient
             .mult_in_place(1.0 / self.batch_size as f32)?;
 
-        self.bias_gradient = self.inner_gradient.sum()?;
+        self.bias_gradient = self.inner_gradient.sum()? / self.batch_size as f32;
 
         self.weights.transpose_in_place();
         Matrix::dot_into(
@@ -225,7 +232,6 @@ impl Layer {
 
     pub fn update_parameters(&mut self, learning_rate: f32) -> Result<(), Box<dyn Error>> {
         self.weights_gradient.mult_in_place(learning_rate)?;
-        println!("wg a: {}", self.weights_gradient);
         self.weights.sub_in_place(&self.weights_gradient)?;
         self.biases
             .sub_scalar_in_place(learning_rate * self.bias_gradient)?;

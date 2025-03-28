@@ -1,7 +1,7 @@
 // Matirx A ------------------------------------
 // Buffer of the A matrix
 @group(0) @binding(0)
-var<storage, read> matrix_a: array<f32>;
+var<storage, read> matrix_a: array<f32>; // This is the outputs after the activation function
 
 // Uniform of the dimensions of the A matrix
 @group(0) @binding(1)
@@ -14,7 +14,7 @@ var<uniform> a_transpose: u32;
 // Matirx B ------------------------------------
 // Buffer of the B matrix
 @group(1) @binding(0)
-var<storage, read> matrix_b: array<f32>;
+var<storage, read> matrix_b: array<f32>; // This is the loss vector
 
 // Uniform of the dimensions of the B matrix
 @group(1) @binding(1)

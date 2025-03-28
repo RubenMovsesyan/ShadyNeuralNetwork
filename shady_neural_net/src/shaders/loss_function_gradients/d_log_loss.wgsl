@@ -80,9 +80,13 @@ fn op_main(
 
         let expected_value = expected[expected_index];
         let predicted_value = predicted[predicted_index];
+        // let p = clamp(predicted_value, 0.000001, 0.999999);
         // matrix_x[x_index] = -((expected_value * log(predicted_value)) + ((1.0 - expected_value) * log(1.0 - predicted_value)));
-        matrix_x[x_index] = -((predicted_value - expected_value) / ((predicted_value - 1.0) * predicted_value));
+        // matrix_x[x_index] = -((predicted_value - expected_value) / ((predicted_value - 1.0) * predicted_value));
         // matrix_x[x_index] = predicted_value;
         // matrix_x[x_index] = expected_value;
+        // matrix_x[x_index] = predicted_value - expected_value;
+        // matrix_x[x_index] = -expected_value/p + (1.0 - expected_value) / (1.0 - p);
+        matrix_x[x_index] = -expected_value/predicted_value;
     }
 }

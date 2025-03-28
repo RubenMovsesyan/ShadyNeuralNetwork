@@ -22,6 +22,24 @@ fn op_main(
     let a_rows = a_dimensions.x;
     let a_cols = a_dimensions.y;
 
+    // Find the Max value of the inputs
+    var max_value: f32 = matrix_a[0];
+    if (row < a_rows && col < a_cols) {
+        var a_index: u32 = 0;
+
+        for (var i: u32 = 0; i < a_rows; i++) {
+            if (a_transpose == 1) {
+                a_index = i + a_rows * col;
+            } else {
+                a_index = i * a_cols + col;
+            }
+
+            max_value = max(max_value, matrix_a[a_index]);
+        }
+    }
+
+    workgroupBarrier();
+
     // Get the exponential of all the elements of the matrix
     if (row < a_rows && col < a_cols) {
         var a_index: u32 = 0;
@@ -32,7 +50,7 @@ fn op_main(
             a_index = row * a_cols + col;
         }
 
-        matrix_a[a_index] = exp(matrix_a[a_index]);
+        matrix_a[a_index] = exp(matrix_a[a_index] - max_value);
     }
 
     workgroupBarrier();

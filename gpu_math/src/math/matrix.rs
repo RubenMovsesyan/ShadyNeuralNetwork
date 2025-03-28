@@ -159,13 +159,8 @@ impl GPUMatrix {
         let sum_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("Matrix Sum Buffer"),
             mapped_at_creation: false,
-            size: {
-                // Computing half the size based on the closest power of 2
-                let half = (new_rows * new_cols) as f32 / 2.0;
-                let next_pow_2 = f32::powf(2.0, (half.log(2.0)).ceil()) as u64;
-
-                next_pow_2 * std::mem::size_of::<f32>() as u64
-            },
+            size: ((new_rows * new_cols) as f32 / 256.0).ceil() as u64
+                * std::mem::size_of::<f32>() as u64,
             usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
         });
 
@@ -3537,7 +3532,7 @@ impl Matrix {
 
                 {
                     let dispatch_size = compute_workgroup_size(
-                        (gpu_matrix.rows * gpu_matrix.cols / 2) as u32,
+                        (gpu_matrix.rows * gpu_matrix.cols) as u32,
                         WORK_GROUP_SIZE,
                     );
 
@@ -3559,7 +3554,8 @@ impl Matrix {
 
                 let output_buf = read_buffer(
                     &gpu_matrix.sum_buffer,
-                    (gpu_matrix.rows * gpu_matrix.cols) / 2 * std::mem::size_of::<f32>() as u64,
+                    ((gpu_matrix.rows * gpu_matrix.cols) as f32 / 256.0).ceil() as u64
+                        * std::mem::size_of::<f32>() as u64,
                     &gpu_matrix.device,
                     &mut encoder,
                 );
@@ -3567,7 +3563,8 @@ impl Matrix {
                 gpu_matrix.device.poll(Maintain::Wait);
                 gpu_matrix.queue.submit(Some(encoder.finish()));
 
-                Ok(get_buffer(&output_buf, &gpu_matrix.device)[0])
+                // Get the sum of all the elements in the ouptut buffer since it has been reduced already
+                Ok(get_buffer(&output_buf, &gpu_matrix.device).iter().sum())
             }
         }
     }

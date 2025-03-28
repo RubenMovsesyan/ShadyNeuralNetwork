@@ -63,7 +63,7 @@ fn main() {
     shady_neural_net.add_layer(10, ActivationFunction::ReLU);
     shady_neural_net.add_layer(10, ActivationFunction::Softmax);
 
-    for _ in 0..10 {
+    for _ in 0..100 {
         shady_neural_net.feed_forward().expect("Failed");
         println!("Cost: {}", shady_neural_net.get_cost().expect("Failed"));
         shady_neural_net.back_propogate().expect("Failed");
