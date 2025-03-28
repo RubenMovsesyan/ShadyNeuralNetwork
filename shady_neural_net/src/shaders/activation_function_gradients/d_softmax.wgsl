@@ -1,5 +1,3 @@
-// X = AB
-
 // Matirx A ------------------------------------
 // Buffer of the A matrix
 @group(0) @binding(0)
@@ -39,8 +37,9 @@ var<uniform> output_dimensions: vec2<u32>;
 @group(2) @binding(2)
 var<uniform> x_transpose: u32;
 
+
 @compute @workgroup_size(16, 16)
-fn dot_main(
+fn op_main(
     @builtin(global_invocation_id) global_id: vec3<u32>
 ) {
     let row = global_id.x;
@@ -52,43 +51,52 @@ fn dot_main(
     let b_rows = b_dimensions.x;
     let b_cols = b_dimensions.y;
 
-    let output_rows = output_dimensions.x;
-    let output_cols = output_dimensions.y;
+    let x_rows = output_dimensions.x;
+    let x_cols = output_dimensions.y;
 
-    let dot_size = a_cols;
-
-    if (row < output_rows && col < output_cols) {
-        var sum: f32 = 0.0;
+    if (row < x_rows && col < x_cols) {
+        var a_index: u32 = 0;
+        var b_index: u32 = 0;
         var x_index: u32 = 0;
 
-        if (x_transpose == 1) {
-            x_index = row + output_rows * col;
-        } else {
-            x_index = row * output_cols + col;
-        }
 
+        var sum: f32 = 0.0;
 
-        for (var k: u32 = 0; k < dot_size; k++) {
-            var a_index: u32 = 0;
-            var b_index: u32 = 0;
-
+        for (var k: u32 = 0; k < a_rows; k++) {
             if (a_transpose == 1) {
-                a_index = k * a_rows + row;
+                a_index = k + a_rows * col;
             } else {
-                a_index = row * a_cols + k;
+                a_index = k * a_cols + col;
             }
 
             if (b_transpose == 1) {
-                b_index = col * b_rows + k;
+                b_index = k + b_rows * col;
             } else {
                 b_index = k * b_cols + col;
             }
 
-
             sum += matrix_a[a_index] * matrix_b[b_index];
         }
 
-        matrix_x[x_index] = sum;
+        if (a_transpose == 1) {
+            a_index = row + a_rows * col;
+        } else {
+            a_index = row * a_cols + col;
+        }
+
+        if (b_transpose == 1) {
+            b_index = row + b_rows * col;
+        } else {
+            b_index = row * b_cols + col;
+        }
+
+        if (x_transpose == 1) {
+            x_index = row + x_rows * col;
+        } else {
+            x_index = row * x_cols + col;
+        }
+
+        matrix_x[x_index] = matrix_a[a_index] * (matrix_b[b_index] - sum);
     }
 
     workgroupBarrier();

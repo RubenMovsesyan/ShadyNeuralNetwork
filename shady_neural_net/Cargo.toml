@@ -11,3 +11,5 @@ rand = "0.9.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 wgpu = "24.0.1"
+gpu_math = { path = "../gpu_math" }
+damage = { path = "../damage" }
