@@ -805,6 +805,8 @@ name = "shady_neural_net"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "damage",
+ "gpu_math",
  "log",
  "pollster",
  "rand",

@@ -56,8 +56,6 @@ fn add_main(
     let output_cols = output_dimensions.y;
 
     if (row < output_rows && col < output_cols) {
-        // let index = row * output_cols + col;
-
         var a_index: u32 = 0;
         var b_index: u32 = 0;
         var x_index: u32 = 0;

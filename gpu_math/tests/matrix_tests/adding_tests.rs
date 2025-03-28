@@ -90,6 +90,66 @@ mod tests {
     }
 
     #[test]
+    fn test_cpu_add_scalar() {
+        let mut mat1 = Matrix::with_shape((5, 6));
+        for i in 0..mat1.rows() {
+            for j in 0..mat1.cols() {
+                mat1[(i, j)] = (i * mat1.cols() + j) as f32;
+            }
+        }
+
+        println!("Before: {}", mat1);
+        mat1.add_scalar_in_place(12.0).expect("Failed");
+        println!("Add Result: {}", mat1);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_gpu_add_scalar() {
+        let instance = Instance::new(&InstanceDescriptor {
+            backends: Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: Some("Device and Queue"),
+                    required_features: Features::empty(),
+                    required_limits: Limits::default(),
+                    ..Default::default()
+                },
+                None,
+            )
+            .block_on()
+            .unwrap();
+
+        let (device, queue) = (Rc::new(device), Rc::new(queue));
+
+        let mut mat1 = Matrix::with_shape((5, 6));
+        for i in 0..mat1.rows() {
+            for j in 0..mat1.cols() {
+                mat1[(i, j)] = (i * mat1.cols() + j) as f32;
+            }
+        }
+        mat1 = mat1.buf(device.clone(), queue.clone());
+
+        println!("Before: {}", mat1);
+        mat1.add_scalar_in_place(12.0).expect("Failed");
+        println!("Add Result: {}", mat1);
+        assert!(true);
+    }
+
+    #[test]
     fn test_cpu_add_in_place() {
         let mut mat1 = Matrix::with_shape((5, 6));
         for i in 0..mat1.rows() {

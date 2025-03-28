@@ -12,7 +12,7 @@ mod test {
 
     #[test]
     fn test_cpu_sum() {
-        let mut mat = Matrix::with_shape((50, 1));
+        let mut mat = Matrix::with_shape((5000, 1));
 
         for i in 0..mat.rows() {
             mat[(i, 0)] = i as f32;
@@ -58,7 +58,7 @@ mod test {
 
         let (device, queue) = (Rc::new(device), Rc::new(queue));
 
-        let mut mat = Matrix::with_shape((50, 1));
+        let mut mat = Matrix::with_shape((5000, 1));
 
         for i in 0..mat.rows() {
             mat[(i, 0)] = i as f32;
