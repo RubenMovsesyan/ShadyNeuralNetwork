@@ -53,34 +53,4 @@ fn sum_main(
     if (local_row == 0) {
         reduce_buffer[workgroup_id.x] = shared_reduce[0];
     }
-
-    // // Compute half to the nearset power of 2
-    // var half = u32(ceil(f32(size) / 2.0));
-    // half = u32(pow(2.0, ceil(log(f32(half)) / log(2.0))));
-
-    // if (row < half) {
-    //     if (row + half < size) {
-    //         reduce_buffer[row] = matrix_a[row] + matrix_a[row + half];
-    //     } else if (row < size) {
-    //         reduce_buffer[row] = matrix_a[row];
-    //     } else {
-    //         reduce_buffer[row] = 0.0;
-    //     }
-    // }
-
-    // half /= 2;
-
-    // workgroupBarrier();
-
-    // while (half > 0) {
-    //     if (row < half) {
-    //         reduce_buffer[row] += reduce_buffer[row + half];
-    //     }
-
-    //     half /= 2;
-
-    //     workgroupBarrier();
-    // }
-
-    // workgroupBarrier();
 }

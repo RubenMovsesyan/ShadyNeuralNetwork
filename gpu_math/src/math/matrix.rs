@@ -1,4 +1,3 @@
-use std::env::consts::OS;
 use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use std::rc::Rc;
