@@ -1,4 +1,8 @@
-use std::{error::Error, rc::Rc};
+use std::{
+    error::Error,
+    io::{Write, stdout},
+    rc::Rc,
+};
 
 use gpu_math::math::matrix::Matrix;
 use pollster::FutureExt;
@@ -36,6 +40,7 @@ impl NeuralNetwork {
         batch_size: usize,
         loss_function: LossFunction,
         learning_rate: f32,
+        max_buffer_size: Option<u32>,
     ) -> Self {
         let instance = Instance::new(&InstanceDescriptor {
             backends: Backends::all(),
@@ -56,7 +61,13 @@ impl NeuralNetwork {
                 &DeviceDescriptor {
                     label: Some("Device and Queue"),
                     required_features: Features::empty(),
-                    required_limits: Limits::default(),
+                    required_limits: match max_buffer_size {
+                        Some(max_size) => Limits {
+                            max_storage_buffer_binding_size: max_size,
+                            ..Default::default()
+                        },
+                        None => Limits::default(),
+                    },
                     ..Default::default()
                 },
                 None,
@@ -105,11 +116,6 @@ impl NeuralNetwork {
     }
 
     pub fn add_input_batch(&mut self, input_batch: Matrix) {
-        // self.inputs = Some(Input::new(
-        //     input_batch,
-        //     self.device.clone(),
-        //     self.queue.clone(),
-        // ));
         self.inputs.push(Input::new(
             input_batch,
             self.device.clone(),
@@ -118,12 +124,6 @@ impl NeuralNetwork {
     }
 
     pub fn add_label_batch(&mut self, label_batch: Matrix) {
-        // self.expected = Some(Output::new(
-        //     label_batch,
-        //     self.loss_function,
-        //     self.device.clone(),
-        //     self.queue.clone(),
-        // ));
         self.expected.push(Output::new(
             label_batch,
             self.loss_function,
@@ -148,17 +148,6 @@ impl NeuralNetwork {
     pub fn get_cost(&self, batch_number: usize) -> Result<f32, Box<dyn Error>> {
         Ok(self.expected[batch_number]
             .get_cost(&self.layers.last().unwrap().output_link().borrow())?)
-        // let costs = self
-        //     .expected
-        //     .iter()
-        //     .map(|output| {
-        //         output
-        //             .get_cost(&self.layers.last().unwrap().output_link().borrow())
-        //             .expect("Could not get cost")
-        //     })
-        //     .collect::<Vec<f32>>();
-
-        // Ok(costs)
     }
 
     pub fn back_propogate(&mut self, batch_number: usize) -> Result<(), Box<dyn Error>> {
@@ -182,4 +171,38 @@ impl NeuralNetwork {
     pub fn num_batches(&self) -> usize {
         self.inputs.len()
     }
+
+    pub fn gradient_descent(&mut self, iterations: usize) -> Result<(), Box<dyn Error>> {
+        for iteration in 0..iterations {
+            if iteration % 10 == 0 {
+                print_progress(iteration, iterations);
+            }
+
+            for batch_number in 0..self.num_batches() {
+                self.feed_forward(batch_number)?;
+                self.back_propogate(batch_number)?;
+                self.update_parameters()?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn print_progress(progress: usize, total: usize) {
+    let bar_size = 40;
+    let ratio = progress as f32 / total as f32;
+    let bars = (bar_size as f32 * ratio).ceil() as usize;
+
+    print!("\r[");
+    for _ in 0..bars {
+        print!("=");
+    }
+    for _ in bars..bar_size {
+        print!(" ");
+    }
+    print!("] ");
+
+    print!("Progress: {:>6.2}%", ratio * 100.0);
+    _ = stdout().flush();
 }

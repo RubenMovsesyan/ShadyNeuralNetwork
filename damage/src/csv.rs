@@ -9,6 +9,23 @@ use std::{
 };
 
 #[derive(Debug)]
+pub enum CSVError {
+    ColumnNotFound(String),
+    RangeBoundsError(String),
+}
+
+impl Display for CSVError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CSVError::ColumnNotFound(col) => write!(f, "Column not found: {}", col),
+            CSVError::RangeBoundsError(msg) => write!(f, "Range Bounds Error: {}", msg),
+        }
+    }
+}
+
+impl Error for CSVError {}
+
+#[derive(Debug)]
 pub struct CSV {
     headers: Vec<String>,
     records: Vec<Record>,
@@ -50,9 +67,9 @@ where
 impl CSV {
     pub fn column_slice<'a>(
         &'a self,
-        header: &'a str,
+        header: &String,
         index: Range<usize>,
-    ) -> Option<Vec<&'a Data>> {
+    ) -> Result<Vec<&'a Data>, CSVError> {
         let data_index = {
             let mut ind = -1;
 
@@ -64,27 +81,25 @@ impl CSV {
             }
 
             if ind < 0 {
-                return None;
+                return Err(CSVError::ColumnNotFound(header.to_string()));
             }
 
             ind as usize
         };
 
-        Some(
-            self.records[index]
-                .iter()
-                .map(|record| &record.data[data_index])
-                .collect(),
-        )
+        Ok(self.records[index]
+            .iter()
+            .map(|record| &record.data[data_index])
+            .collect())
     }
 
     pub fn columns_slice<'a, R>(
         &'a self,
         headers: R,
         index: Range<usize>,
-    ) -> Option<Vec<&'a [Data]>>
+    ) -> Result<Vec<&'a [Data]>, CSVError>
     where
-        R: RangeBounds<&'a str>,
+        R: RangeBounds<String>,
     {
         let data_range = {
             let start = match headers.start_bound() {
@@ -95,10 +110,10 @@ impl CSV {
                         .position(|header| header.as_str() == *start_bound)
                     {
                         Some(start) => start,
-                        None => return None,
+                        None => return Err(CSVError::ColumnNotFound(start_bound.to_string())),
                     }
                 }
-                _ => return None,
+                _ => return Err(CSVError::RangeBoundsError("Undefined Bound".to_string())),
             };
 
             let end = match headers.end_bound() {
@@ -109,7 +124,7 @@ impl CSV {
                         .position(|header| header.as_str() == *end_bound)
                     {
                         Some(end) => end,
-                        None => return None,
+                        None => return Err(CSVError::ColumnNotFound(end_bound.to_string())),
                     }
                 }
                 std::ops::Bound::Included(end_bound) => {
@@ -119,21 +134,19 @@ impl CSV {
                         .position(|header| header.as_str() == *end_bound)
                     {
                         Some(end) => end + 1,
-                        None => return None,
+                        None => return Err(CSVError::ColumnNotFound(end_bound.to_string())),
                     }
                 }
-                _ => return None,
+                _ => return Err(CSVError::RangeBoundsError("Undefined Bound".to_string())),
             };
 
             start..end
         };
 
-        Some(
-            self.records[index]
-                .iter()
-                .map(|record| &record.data[data_range.clone()])
-                .collect(),
-        )
+        Ok(self.records[index]
+            .iter()
+            .map(|record| &record.data[data_range.clone()])
+            .collect())
     }
 }
 
@@ -292,7 +305,8 @@ mod tests {
             "{} - {} 8 - 14: {:#?}",
             "6x13",
             "6x22",
-            csv.columns_slice("6x13".."6x22", 8..14).unwrap()
+            csv.columns_slice("6x13".to_string().."6x22".to_string(), 8..14)
+                .unwrap()
         );
 
         assert!(true);

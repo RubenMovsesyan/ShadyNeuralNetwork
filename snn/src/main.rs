@@ -345,7 +345,7 @@ fn main() {
     let data = parse_csv("../../test_files/mnist_train.csv").expect("Failed");
 
     let label_train = data
-        .column_slice("label", 0..NUM_INPUTS)
+        .column_slice(&String::from("label"), 0..NUM_INPUTS)
         .expect("Failed")
         .iter()
         .map(|&label_data| label_data.as_float().expect("Failed"))
@@ -361,7 +361,7 @@ fn main() {
     // label_inputs = label_inputs.buf(device.clone(), queue.clone());
 
     let image_train = data
-        .columns_slice("1x1"..="28x28", 0..NUM_INPUTS)
+        .columns_slice("1x1".to_string()..="28x28".to_string(), 0..NUM_INPUTS)
         .expect("Failed")
         .iter()
         .map(|&data_array| {
