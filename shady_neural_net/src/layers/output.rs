@@ -10,7 +10,6 @@ use super::loss_function::LossFunction;
 pub struct Output {
     expected_matrix: Matrix,
     loss_function_gradient: Matrix,
-    loss_function: LossFunction,
     loss_function_index: usize,
     loss_function_gradient_index: usize,
 }
@@ -45,7 +44,6 @@ impl Output {
         Self {
             expected_matrix,
             loss_function_gradient,
-            loss_function,
             loss_function_index,
             loss_function_gradient_index,
         }

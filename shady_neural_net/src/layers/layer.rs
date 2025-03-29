@@ -195,7 +195,7 @@ impl Layer {
         Ok(())
     }
 
-	/// Runs the back propogate algorithm on this layer storing the weights gradient and the bias gradient in
+    /// Runs the back propogate algorithm on this layer storing the weights gradient and the bias gradient in
     /// their respective buffers
     ///
     /// # Arguments
@@ -235,9 +235,9 @@ impl Layer {
                 )?;
             }
         }
-		
-    	// Dot the inputs with the outputs of this layer that have been scaled by the loss gradient
-        // dZ * h^T  
+
+        // Dot the inputs with the outputs of this layer that have been scaled by the loss gradient
+        // dZ * h^T
         self.inputs.borrow_mut().transpose_in_place();
         Matrix::dot_into(
             &self.inner_gradient,
@@ -246,11 +246,11 @@ impl Layer {
         )?;
         self.inputs.borrow_mut().transpose_in_place();
 
-		// Make sure to normalize the weight gradient by the batch size
+        // Make sure to normalize the weight gradient by the batch size
         self.weights_gradient
             .mult_in_place(1.0 / self.batch_size as f32)?;
 
-		// Also make sure to normalize the bias gradient by the batch size
+        // Also make sure to normalize the bias gradient by the batch size
         self.bias_gradient = self.inner_gradient.sum()? / self.batch_size as f32;
 
         // Compute the gradient that gets sent back to the previous layer
@@ -284,12 +284,21 @@ impl Layer {
         Ok(())
     }
 
-	/// Gets a reference to the outputs of this layer to be used in the next layer
+    /// Gets a reference to the outputs of this layer to be used in the next layer
     ///
     /// # Returns
     ///
     /// `MatrixRef` of the outputs to be referenced by the next layer
     pub fn output_link(&self) -> MatrixRef {
         self.outputs.clone()
+    }
+
+    /// Sets the input link for this layer
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - refernce to the matrix of the inputs
+    pub fn input_link(&mut self, input: MatrixRef) {
+        self.inputs = input;
     }
 }
