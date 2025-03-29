@@ -26,6 +26,21 @@ pub struct Layer {
 }
 
 impl Layer {
+    /// Creates a new layer with the given parameter
+    ///
+    /// # Arguments
+    ///
+    /// * `num_inputs` - number of inputs this layer has
+    /// * `num_nodes` - the number of nodes on this layer
+    /// * `linked_inputs` - Reference to the outputs of the previous layer
+    /// * `batch_size` - the size of the batch that the layer will be training with
+    /// * `activattion_function` - The activation function for this layer (make sure to use the proper activation function for the type of layer this is, i.e. ReLU for a hidden layer or softmax for an output layer)
+    /// * `device` - reference counted wgpu device for this layer to use when creating all the necessary buffers
+    /// * `queue` - reference counted wgpu queue for this layer to use when creting all the necessary buffers
+    ///
+    /// # Returns
+    ///
+    /// `Layer` with the parameters created and set by the defined parameters
     pub fn new(
         num_inputs: usize,
         num_nodes: usize,
@@ -63,6 +78,7 @@ impl Layer {
         back_prop_gradient = back_prop_gradient.buf(device, queue);
 
         use ActivationFunction::*;
+        // Set the custom matrix operation for the activation function described
         let activation_function_index = match activation_function {
             Step => outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
                 "../shaders/activation_functions/step.wgsl"
@@ -94,6 +110,7 @@ impl Layer {
         }
         .unwrap();
 
+        // Set the gradient for the activation function described
         let activation_function_gradient_index = match activation_function {
             Step => outputs.add_custom_single_op_pipeline(include_wgsl!(
                 "../shaders/activation_function_gradients/d_step.wgsl"
@@ -145,10 +162,21 @@ impl Layer {
         }
     }
 
+    /// Gets the number of nodes that are in this layer
+    ///
+    /// # Returns
+    ///
+    /// `usize` of the number of nodes
     pub fn get_num_nodes(&self) -> usize {
         self.num_nodes
     }
 
+    /// Runs the feed forward algorithm on this layer by multiplying the inputs by the weight matrix,
+    /// running that through the activation function, and adding the bias vector to the result
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the feed forward was successful, and `Err` if failed
     pub fn feed_forward(&mut self) -> Result<(), Box<dyn Error>> {
         Matrix::dot_into(
             &self.weights,
@@ -167,22 +195,31 @@ impl Layer {
         Ok(())
     }
 
+	/// Runs the back propogate algorithm on this layer storing the weights gradient and the bias gradient in
+    /// their respective buffers
+    ///
+    /// # Arguments
+    ///
+    /// `next_layer_back_prop` - reference to a `Matrix` that contains the next layers back propogation gradient multiplied by the next layers weights, in the case of the output layer, it is the derivative of the loss function
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok(&Matrix)` that contains the gradient that needs to be send back to the previous layer and `Err` if it failed
     pub fn back_propogate(
         &mut self,
-        // inputs: &mut Matrix,
         next_layer_back_prop: &Matrix,
     ) -> Result<&Matrix, Box<dyn Error>> {
-        // println!("nlbp: {}", next_layer_back_prop.sum()?);
         // Get the output gradient to find the weights gradient with
         match self.activation_function {
             ActivationFunction::Softmax => {
+                // In the case of softmax we don't need to multiply by the next layer back prop
+                // because we need to use it to compute the Jacobian matrix anyways
                 Matrix::run_custom_multi_op_pipeline_into(
                     &self.outputs.borrow(),
                     next_layer_back_prop,
                     self.activation_function_gradient_index,
                     &mut self.inner_gradient,
                 )?;
-                // Matrix::mult_into(next_layer_back_prop, 1.0, &mut self.output_gradient)?;
             }
             _ => {
                 Matrix::run_custom_single_op_pipeline_into(
@@ -198,14 +235,9 @@ impl Layer {
                 )?;
             }
         }
-
-        // println!(
-        //     "Shape: {} {}",
-        //     self.inner_gradient.rows(),
-        //     self.inner_gradient.cols()
-        // );
-        // println!("dZ: {}", self.inner_gradient.sum()?);
-
+		
+    	// Dot the inputs with the outputs of this layer that have been scaled by the loss gradient
+        // dZ * h^T  
         self.inputs.borrow_mut().transpose_in_place();
         Matrix::dot_into(
             &self.inner_gradient,
@@ -214,11 +246,15 @@ impl Layer {
         )?;
         self.inputs.borrow_mut().transpose_in_place();
 
+		// Make sure to normalize the weight gradient by the batch size
         self.weights_gradient
             .mult_in_place(1.0 / self.batch_size as f32)?;
 
+		// Also make sure to normalize the bias gradient by the batch size
         self.bias_gradient = self.inner_gradient.sum()? / self.batch_size as f32;
 
+        // Compute the gradient that gets sent back to the previous layer
+        // W^T * dZ
         self.weights.transpose_in_place();
         Matrix::dot_into(
             &self.weights,
@@ -230,6 +266,15 @@ impl Layer {
         Ok(&self.back_prop_gradient)
     }
 
+    /// Updates the weights and biases of this layer based on the gradients computed in the back propogation stage
+    ///
+    /// # Arguments
+    ///
+    /// * `learning_rate` - learning rate to scale the weight and bias gradients by
+    ///
+    /// # Returns
+    ///
+    /// `Result` with `Ok` if the update was successful and `Err` if the update failed
     pub fn update_parameters(&mut self, learning_rate: f32) -> Result<(), Box<dyn Error>> {
         self.weights_gradient.mult_in_place(learning_rate)?;
         self.weights.sub_in_place(&self.weights_gradient)?;
@@ -239,6 +284,11 @@ impl Layer {
         Ok(())
     }
 
+	/// Gets a reference to the outputs of this layer to be used in the next layer
+    ///
+    /// # Returns
+    ///
+    /// `MatrixRef` of the outputs to be referenced by the next layer
     pub fn output_link(&self) -> MatrixRef {
         self.outputs.clone()
     }
