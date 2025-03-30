@@ -1,7 +1,7 @@
 use shady_neural_net::{
     create_training_batches_from_csv,
     layers::{activation_function::ActivationFunction, loss_function::LossFunction},
-    neural_network::NeuralNetwork,
+    neural_network::{NeuralNetwork, save_network},
 };
 
 fn main() {
@@ -46,8 +46,10 @@ fn main() {
     shady_neural_net.add_layer(10, ActivationFunction::ReLU);
     shady_neural_net.add_layer(10, ActivationFunction::Softmax);
 
-    match shady_neural_net.gradient_descent(500) {
+    match shady_neural_net.gradient_descent(1000) {
         Ok(_) => {}
         Err(err) => println!("{:#?}", err),
     }
+
+    _ = save_network(&shady_neural_net, "test_files/nn.json");
 }

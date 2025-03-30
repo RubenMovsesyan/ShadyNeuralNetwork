@@ -3,11 +3,9 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 use gpu_math::math::matrix::Matrix;
 use wgpu::{Device, Queue, include_wgsl};
 
-use super::{MatrixRef, activation_function::ActivationFunction};
+use crate::neural_network::Parameters;
 
-//              weights    biases   activation function    inputs   outputs
-//                  \/        \/        \/                  \/      \/
-type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, usize, usize);
+use super::{MatrixRef, activation_function::ActivationFunction};
 
 #[derive(Debug)]
 pub struct Layer {
@@ -183,7 +181,7 @@ impl Layer {
     ///
     /// `Layer` with the weights and biases specified in `parameters`
     pub fn from_parameters(
-        parameters: Parameters,
+        parameters: &Parameters,
         batch_size: usize,
         linked_inputs: MatrixRef,
         device: Rc<Device>,
@@ -191,13 +189,13 @@ impl Layer {
     ) -> Self {
         let (weights, biases, activation_function, inputs, outputs) = parameters;
 
-        let mut weights_matrix = Matrix::with_shape((outputs, inputs));
-        let mut biases_matrix = Matrix::with_shape((outputs, 1));
-        let mut layer_outputs = Matrix::with_shape((outputs, batch_size));
-        let mut output_gradient = Matrix::with_shape((outputs, batch_size));
-        let mut inner_gradient = Matrix::with_shape((outputs, batch_size));
-        let mut weights_gradient = Matrix::with_shape((outputs, inputs));
-        let mut back_prop_gradient = Matrix::with_shape((inputs, batch_size));
+        let mut weights_matrix = Matrix::with_shape((*outputs, *inputs));
+        let mut biases_matrix = Matrix::with_shape((*outputs, 1));
+        let mut layer_outputs = Matrix::with_shape((*outputs, batch_size));
+        let mut output_gradient = Matrix::with_shape((*outputs, batch_size));
+        let mut inner_gradient = Matrix::with_shape((*outputs, batch_size));
+        let mut weights_gradient = Matrix::with_shape((*outputs, *inputs));
+        let mut back_prop_gradient = Matrix::with_shape((*inputs, batch_size));
 
         // TODO: Matrix sure to take into account the transpose
         for i in 0..weights_matrix.rows() {
@@ -289,10 +287,10 @@ impl Layer {
             biases: biases_matrix,
             inputs: linked_inputs,
             outputs: Rc::new(RefCell::new(layer_outputs)),
-            num_inputs: inputs,
-            num_nodes: outputs,
+            num_inputs: *inputs,
+            num_nodes: *outputs,
             batch_size,
-            activation_function,
+            activation_function: *activation_function,
             activation_function_index,
             activation_function_gradient_index,
 

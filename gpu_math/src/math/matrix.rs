@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Index, IndexMut};
 use std::rc::Rc;
 
 use wgpu::util::{BufferInitDescriptor, DeviceExt};

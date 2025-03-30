@@ -1,11 +1,13 @@
 use std::{
     error::Error,
+    fs::File,
     io::{Write, stdout},
     rc::Rc,
 };
 
 use gpu_math::math::matrix::Matrix;
 use pollster::FutureExt;
+use serde::{Deserialize, Serialize};
 use wgpu::{
     Backends, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
     PowerPreference, Queue, RequestAdapterOptions,
@@ -15,6 +17,15 @@ use crate::layers::{
     activation_function::ActivationFunction, input::Input, layer::Layer,
     loss_function::LossFunction, output::Output,
 };
+
+//              weights    biases   activation function    inputs   outputs
+//                  \/        \/        \/                  \/      \/
+pub type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, usize, usize);
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkDescriptor {
+    layers: Vec<Parameters>,
+}
 
 #[derive(Debug)]
 pub struct NeuralNetwork {
@@ -87,6 +98,29 @@ impl NeuralNetwork {
             learning_rate,
             device,
             queue,
+        }
+    }
+
+    pub fn set_from_network_descriptor(&mut self, descriptor: NetworkDescriptor) {
+        let mut link = match self.inputs.first() {
+            Some(input_layer) => input_layer.get_inputs(),
+            None => panic!("Input Layer has not been added yet"),
+        };
+
+        self.layers.clear();
+
+        for layer_descriptor in descriptor.layers.iter() {
+            self.layers.push(Layer::from_parameters(
+                layer_descriptor,
+                self.batch_size,
+                link,
+                self.device.clone(),
+                self.queue.clone(),
+            ));
+
+            unsafe {
+                link = self.layers.last().unwrap_unchecked().output_link();
+            }
         }
     }
 
@@ -187,6 +221,18 @@ impl NeuralNetwork {
 
         Ok(())
     }
+
+    pub fn get_model_descriptor(&self) -> NetworkDescriptor {
+        let layer_descriptors = self
+            .layers
+            .iter()
+            .map(|layer| layer.save_parameters().expect("Failed to Save parameters"))
+            .collect::<Vec<Parameters>>();
+
+        NetworkDescriptor {
+            layers: layer_descriptors,
+        }
+    }
 }
 
 fn print_progress(progress: usize, total: usize) {
@@ -205,4 +251,13 @@ fn print_progress(progress: usize, total: usize) {
 
     print!("Progress: {:>6.2}%", ratio * 100.0);
     _ = stdout().flush();
+}
+
+pub fn save_network(neural_network: &NeuralNetwork, file_path: &str) -> std::io::Result<()> {
+    let serialized = neural_network.get_model_descriptor();
+
+    let mut file = File::create(file_path)?;
+
+    write!(file, "{}", serde_json::to_string(&serialized)?)?;
+    Ok(())
 }
