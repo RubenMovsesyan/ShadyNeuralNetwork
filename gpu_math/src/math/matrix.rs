@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::rc::Rc;
 
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -778,6 +778,40 @@ impl Matrix {
                     data: values,
                     transpose: gpu_matrix.transpose,
                 })
+            }
+        }
+    }
+
+    /// Gets the inner data of the matrix as vector of f32
+    ///
+    /// # Returns
+    ///
+    /// `Ok` with `Vec<f32>` of the data if it was successfull and `Err` if not
+    pub fn get_inner(&self) -> Result<Vec<f32>, MatrixCustomError> {
+        match self {
+            Matrix::CPU(cpu_matrix) => Ok(cpu_matrix.data.clone()),
+            Matrix::GPU(gpu_matrix) => {
+                let values = {
+                    let mut encoder =
+                        gpu_matrix
+                            .device
+                            .create_command_encoder(&CommandEncoderDescriptor {
+                                label: Some("Matrix Get Inner Encoder"),
+                            });
+
+                    let values_buffer = read_buffer(
+                        &gpu_matrix.data,
+                        gpu_matrix.rows * gpu_matrix.cols * std::mem::size_of::<f32>() as u64,
+                        &gpu_matrix.device,
+                        &mut encoder,
+                    );
+
+                    gpu_matrix.queue.submit(Some(encoder.finish()));
+
+                    get_buffer(&values_buffer, &gpu_matrix.device)
+                };
+
+                Ok(values.clone())
             }
         }
     }

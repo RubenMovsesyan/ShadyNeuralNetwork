@@ -50,40 +50,4 @@ fn main() {
         Ok(_) => {}
         Err(err) => println!("{:#?}", err),
     }
-
-    // for (input_batch, label_batch) in training_inputs.into_iter().zip(label_inputs.into_iter()) {
-    //     shady_neural_net.add_input_batch(input_batch);
-    //     shady_neural_net.add_label_batch(label_batch);
-    // }
-
-    // shady_neural_net.add_layer(10, ActivationFunction::ReLU);
-    // shady_neural_net.add_layer(10, ActivationFunction::Softmax);
-
-    // for iteration in 0..500 {
-    //     for batch_number in 0..shady_neural_net.num_batches() {
-    //         shady_neural_net.feed_forward(batch_number).expect("Failed");
-    //         shady_neural_net
-    //             .back_propogate(batch_number)
-    //             .expect("Failed");
-    //         shady_neural_net.update_parameters().expect("Failed");
-
-    //         if iteration % 10 == 0 {
-    //             println!("Iteration: {}", iteration);
-    //             println!(
-    //                 "Cost: {} {}",
-    //                 batch_number,
-    //                 shady_neural_net.get_cost(batch_number).expect("Failed")
-    //             );
-    //         }
-    //     }
-    // }
-
-    // for output in outputs.iter() {
-    //     println!("{}", output);
-    // }
-
-    // println!(
-    //     "Costs: {:#?}",
-    //     shady_neural_net.get_costs(&outputs).expect("Failed")
-    // );
 }

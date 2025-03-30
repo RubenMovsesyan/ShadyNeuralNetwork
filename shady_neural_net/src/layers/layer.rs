@@ -5,12 +5,17 @@ use wgpu::{Device, Queue, include_wgsl};
 
 use super::{MatrixRef, activation_function::ActivationFunction};
 
+//              weights    biases   activation function    inputs   outputs
+//                  \/        \/        \/                  \/      \/
+type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, usize, usize);
+
 #[derive(Debug)]
 pub struct Layer {
     weights: Matrix,
     biases: Matrix,
     inputs: MatrixRef,
     outputs: MatrixRef,
+    num_inputs: usize,
     num_nodes: usize,
     batch_size: usize,
     activation_function: ActivationFunction,
@@ -147,7 +152,145 @@ impl Layer {
             biases,
             inputs: linked_inputs,
             outputs: Rc::new(RefCell::new(outputs)),
+            num_inputs,
             num_nodes,
+            batch_size,
+            activation_function,
+            activation_function_index,
+            activation_function_gradient_index,
+
+            // -------------------------
+            output_gradient,
+            inner_gradient,
+            weights_gradient,
+            bias_gradient: 0.0,
+            back_prop_gradient,
+        }
+    }
+
+    /// Creates a layer from the weights and biases described in `parameters`
+    /// everything else is still needs to be specified when creating the network
+    ///
+    /// # Arguments
+    ///
+    /// * `parameters` - information about the weights and biases for this layer
+    /// * `batch_size` - the size of the batch that is going to be sent though this network
+    /// * `linked_inputs` - the outputs from the previous layer
+    /// * `device` - wgpu device to create all the gpu matrices
+    /// * `queue` - wgpu queue to create all the gpu matrices
+    ///
+    /// # Returns
+    ///
+    /// `Layer` with the weights and biases specified in `parameters`
+    pub fn from_parameters(
+        parameters: Parameters,
+        batch_size: usize,
+        linked_inputs: MatrixRef,
+        device: Rc<Device>,
+        queue: Rc<Queue>,
+    ) -> Self {
+        let (weights, biases, activation_function, inputs, outputs) = parameters;
+
+        let mut weights_matrix = Matrix::with_shape((outputs, inputs));
+        let mut biases_matrix = Matrix::with_shape((outputs, 1));
+        let mut layer_outputs = Matrix::with_shape((outputs, batch_size));
+        let mut output_gradient = Matrix::with_shape((outputs, batch_size));
+        let mut inner_gradient = Matrix::with_shape((outputs, batch_size));
+        let mut weights_gradient = Matrix::with_shape((outputs, inputs));
+        let mut back_prop_gradient = Matrix::with_shape((inputs, batch_size));
+
+        // TODO: Matrix sure to take into account the transpose
+        for i in 0..weights_matrix.rows() {
+            for j in 0..weights_matrix.cols() {
+                let index = i * weights_matrix.rows() + j;
+                weights_matrix[(i, j)] = weights[index];
+            }
+        }
+
+        for i in 0..biases_matrix.rows() {
+            biases_matrix[(i, 0)] = biases[i];
+        }
+
+        weights_matrix = weights_matrix.buf(device.clone(), queue.clone());
+        biases_matrix = biases_matrix.buf(device.clone(), queue.clone());
+        layer_outputs = layer_outputs.buf(device.clone(), queue.clone());
+        output_gradient = output_gradient.buf(device.clone(), queue.clone());
+        inner_gradient = inner_gradient.buf(device.clone(), queue.clone());
+        weights_gradient = weights_gradient.buf(device.clone(), queue.clone());
+        back_prop_gradient = back_prop_gradient.buf(device, queue);
+
+        use ActivationFunction::*;
+        // Set the custom matrix operation for the activation function described
+        let activation_function_index = match activation_function {
+            Step => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+                "../shaders/activation_functions/step.wgsl"
+            )),
+            Threshold(_) => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+                "../shaders/activation_functions/threshold.wgsl"
+            )),
+            BinarySigmoid(_) => layer_outputs.add_custom_single_op_in_place_pipeline(
+                include_wgsl!("../shaders/activation_functions/binary_sigmoid.wgsl"),
+            ),
+            BipolarSigmoid(_) => layer_outputs.add_custom_single_op_in_place_pipeline(
+                include_wgsl!("../shaders/activation_functions/bipolar_sigmoid.wgsl"),
+            ),
+            ReLU => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+                "../shaders/activation_functions/relu.wgsl"
+            )),
+            LeakyReLU(_) => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+                "../shaders/activation_functions/leaky_relu.wgsl"
+            )),
+            HyperbolicTangent => layer_outputs.add_custom_single_op_in_place_pipeline(
+                include_wgsl!("../shaders/activation_functions/hyperbolic_tangent.wgsl"),
+            ),
+            Softmax => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+                "../shaders/activation_functions/softmax.wgsl"
+            )),
+            Custom => {
+                todo!()
+            }
+        }
+        .unwrap();
+
+        // Set the gradient for the activation function described
+        let activation_function_gradient_index = match activation_function {
+            Step => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_step.wgsl"
+            )),
+            Threshold(_) => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_threshold.wgsl"
+            )),
+            BinarySigmoid(_) => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_binary_sigmoid.wgsl"
+            )),
+            BipolarSigmoid(_) => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_bipolar_sigmoid.wgsl"
+            )),
+            ReLU => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_relu.wgsl"
+            )),
+            LeakyReLU(_) => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_leaky_relu.wgsl"
+            )),
+            HyperbolicTangent => layer_outputs.add_custom_single_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_hyperbolic_tangent.wgsl"
+            )),
+            Softmax => layer_outputs.add_custom_multi_op_pipeline(include_wgsl!(
+                "../shaders/activation_function_gradients/d_softmax.wgsl"
+            )),
+            Custom => {
+                todo!()
+            }
+        }
+        .unwrap();
+
+        Self {
+            weights: weights_matrix,
+            biases: biases_matrix,
+            inputs: linked_inputs,
+            outputs: Rc::new(RefCell::new(layer_outputs)),
+            num_inputs: inputs,
+            num_nodes: outputs,
             batch_size,
             activation_function,
             activation_function_index,
@@ -300,5 +443,21 @@ impl Layer {
     /// * `input` - refernce to the matrix of the inputs
     pub fn input_link(&mut self, input: MatrixRef) {
         self.inputs = input;
+    }
+
+    /// Saves the parameters of this layer to be used later to recreate this layer
+    ///
+    /// # Returns
+    ///
+    /// `Ok` with `(Vec<f32>, Vec<f32>, ActivationFunction)` representing the weights, biases, and activation function respectively
+    /// if successful, and `Err` if failed
+    pub fn save_parameters(&self) -> Result<Parameters, Box<dyn Error>> {
+        Ok((
+            self.weights.get_inner()?,
+            self.biases.get_inner()?,
+            self.activation_function,
+            self.num_inputs,
+            self.num_nodes,
+        ))
     }
 }

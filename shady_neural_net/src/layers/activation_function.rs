@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ActivationFunction {
     Step,
     Threshold(f32),

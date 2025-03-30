@@ -291,7 +291,7 @@ mod tests {
 
         println!(
             "Labels 0 - 10: {:#?}",
-            csv.column_slice("label", 0..10).unwrap()
+            csv.column_slice(&"label".to_string(), 0..10).unwrap()
         );
 
         assert!(true);
