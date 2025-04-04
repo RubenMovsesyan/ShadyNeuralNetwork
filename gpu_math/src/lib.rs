@@ -62,7 +62,7 @@ pub fn init() {
         .unwrap();
 
     // Create the pipelines for matrix math
-    let matrix_pipelines = unsafe { MatrixPipelines::init().unwrap_unchecked() };
+    let matrix_pipelines = unsafe { MatrixPipelines::init(&device).unwrap_unchecked() };
 
     unsafe {
         GPU_MATHS = Some(GpuMath {
@@ -99,5 +99,13 @@ unsafe fn get_queue<'a>() -> &'a Queue {
     #[allow(static_mut_refs)]
     unsafe {
         &GPU_MATHS.as_ref().unwrap_unchecked().queue
+    }
+}
+
+// IMPORTANT: make sure to call test_init before this function
+unsafe fn get_pipelines<'a>() -> &'a MatrixPipelines {
+    #[allow(static_mut_refs)]
+    unsafe {
+        &GPU_MATHS.as_ref().unwrap_unchecked().matrix_pipelines
     }
 }
