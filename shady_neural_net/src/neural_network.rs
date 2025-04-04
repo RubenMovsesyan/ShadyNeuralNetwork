@@ -18,8 +18,8 @@ use crate::layers::{
     loss_function::LossFunction, output::Output,
 };
 
-//              weights    biases   activation function    inputs   outputs
-//                  \/        \/        \/                  \/      \/
+//                  weights    biases   activation function    inputs   outputs
+//                      \/        \/        \/                  \/      \/
 pub type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, usize, usize);
 
 #[derive(Debug, Serialize, Deserialize)]
