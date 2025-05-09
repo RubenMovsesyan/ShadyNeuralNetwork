@@ -13,3 +13,4 @@ serde_json = "1.0.140"
 wgpu = "24.0.1"
 gpu_math = { path = "../gpu_math" }
 damage = { path = "../damage" }
+anyhow = "1.0.98"
