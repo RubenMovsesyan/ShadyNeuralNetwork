@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use gpu_math::math::matrix::Matrix;
+use gpu_math::{GpuMath, math::matrix::Matrix};
 use pollster::FutureExt;
 use serde::{Deserialize, Serialize};
 use wgpu::{
@@ -20,7 +20,7 @@ use crate::layers::{
 
 //                  weights    biases   activation function    inputs   outputs
 //                      \/        \/        \/                  \/      \/
-pub type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, usize, usize);
+pub type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, u32, u32);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NetworkDescriptor {
@@ -40,9 +40,8 @@ pub struct NeuralNetwork {
 
     learning_rate: f32,
 
-    // WGPU
-    device: Rc<Device>,
-    queue: Rc<Queue>,
+    // Matrix Multiplication
+    gpu_math: GpuMath,
 }
 
 impl NeuralNetwork {
@@ -53,40 +52,7 @@ impl NeuralNetwork {
         learning_rate: f32,
         max_buffer_size: Option<u32>,
     ) -> Self {
-        let instance = Instance::new(&InstanceDescriptor {
-            backends: Backends::all(),
-            ..Default::default()
-        });
-
-        let adapter = instance
-            .request_adapter(&RequestAdapterOptions {
-                power_preference: PowerPreference::HighPerformance,
-                force_fallback_adapter: false,
-                compatible_surface: None,
-            })
-            .block_on()
-            .unwrap();
-
-        let (device, queue) = adapter
-            .request_device(
-                &DeviceDescriptor {
-                    label: Some("Device and Queue"),
-                    required_features: Features::empty(),
-                    required_limits: match max_buffer_size {
-                        Some(max_size) => Limits {
-                            max_storage_buffer_binding_size: max_size,
-                            ..Default::default()
-                        },
-                        None => Limits::default(),
-                    },
-                    ..Default::default()
-                },
-                None,
-            )
-            .block_on()
-            .unwrap();
-
-        let (device, queue) = (Rc::new(device), Rc::new(queue));
+        let gpu_math = GpuMath::new();
 
         Self {
             inputs: Vec::new(),
@@ -96,8 +62,7 @@ impl NeuralNetwork {
             batch_size,
             loss_function,
             learning_rate,
-            device,
-            queue,
+            gpu_math,
         }
     }
 

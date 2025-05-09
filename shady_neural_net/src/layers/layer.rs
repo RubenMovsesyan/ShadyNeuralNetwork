@@ -1,6 +1,6 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use gpu_math::math::matrix::Matrix;
+use gpu_math::{GpuMath, math::matrix::Matrix};
 use wgpu::{Device, Queue, include_wgsl};
 
 use crate::neural_network::Parameters;
@@ -182,66 +182,46 @@ impl Layer {
     /// `Layer` with the weights and biases specified in `parameters`
     pub fn from_parameters(
         parameters: &Parameters,
-        batch_size: usize,
+        batch_size: u32,
         linked_inputs: MatrixRef,
-        device: Rc<Device>,
-        queue: Rc<Queue>,
+        gpu_math: &mut GpuMath,
     ) -> Self {
         let (weights, biases, activation_function, inputs, outputs) = parameters;
 
-        let mut weights_matrix = Matrix::with_shape((*outputs, *inputs));
-        let mut biases_matrix = Matrix::with_shape((*outputs, 1));
-        let mut layer_outputs = Matrix::with_shape((*outputs, batch_size));
-        let mut output_gradient = Matrix::with_shape((*outputs, batch_size));
-        let mut inner_gradient = Matrix::with_shape((*outputs, batch_size));
-        let mut weights_gradient = Matrix::with_shape((*outputs, *inputs));
-        let mut back_prop_gradient = Matrix::with_shape((*inputs, batch_size));
+        let mut weights_matrix = Matrix::new(gpu_math, (*outputs, *inputs), Some(weights.clone()));
 
-        // TODO: Matrix sure to take into account the transpose
-        for i in 0..weights_matrix.rows() {
-            for j in 0..weights_matrix.cols() {
-                let index = i * weights_matrix.rows() + j;
-                weights_matrix[(i, j)] = weights[index];
-            }
-        }
-
-        for i in 0..biases_matrix.rows() {
-            biases_matrix[(i, 0)] = biases[i];
-        }
-
-        weights_matrix = weights_matrix.buf(device.clone(), queue.clone());
-        biases_matrix = biases_matrix.buf(device.clone(), queue.clone());
-        layer_outputs = layer_outputs.buf(device.clone(), queue.clone());
-        output_gradient = output_gradient.buf(device.clone(), queue.clone());
-        inner_gradient = inner_gradient.buf(device.clone(), queue.clone());
-        weights_gradient = weights_gradient.buf(device.clone(), queue.clone());
-        back_prop_gradient = back_prop_gradient.buf(device, queue);
+        let mut biases_matrix = Matrix::new(gpu_math, (*outputs, 1), Some(biases.clone()));
+        let mut layer_outputs = Matrix::new(gpu_math, (*outputs, batch_size), None);
+        let mut output_gradient = Matrix::new(gpu_math, (*outputs, batch_size), None);
+        let mut inner_gradient = Matrix::new(gpu_math, (*outputs, batch_size), None);
+        let mut weights_gradient = Matrix::new(gpu_math, (*outputs, *inputs), None);
+        let mut back_prop_gradient = Matrix::new(gpu_math, (*inputs, batch_size), None);
 
         use ActivationFunction::*;
         // Set the custom matrix operation for the activation function described
         let activation_function_index = match activation_function {
-            Step => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+            Step => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
                 "../shaders/activation_functions/step.wgsl"
             )),
-            Threshold(_) => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+            Threshold(_) => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
                 "../shaders/activation_functions/threshold.wgsl"
             )),
-            BinarySigmoid(_) => layer_outputs.add_custom_single_op_in_place_pipeline(
-                include_wgsl!("../shaders/activation_functions/binary_sigmoid.wgsl"),
-            ),
-            BipolarSigmoid(_) => layer_outputs.add_custom_single_op_in_place_pipeline(
-                include_wgsl!("../shaders/activation_functions/bipolar_sigmoid.wgsl"),
-            ),
-            ReLU => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+            BinarySigmoid(_) => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+                "../shaders/activation_functions/binary_sigmoid.wgsl"
+            )),
+            BipolarSigmoid(_) => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+                "../shaders/activation_functions/bipolar_sigmoid.wgsl"
+            )),
+            ReLU => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
                 "../shaders/activation_functions/relu.wgsl"
             )),
-            LeakyReLU(_) => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+            LeakyReLU(_) => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
                 "../shaders/activation_functions/leaky_relu.wgsl"
             )),
-            HyperbolicTangent => layer_outputs.add_custom_single_op_in_place_pipeline(
-                include_wgsl!("../shaders/activation_functions/hyperbolic_tangent.wgsl"),
-            ),
-            Softmax => layer_outputs.add_custom_single_op_in_place_pipeline(include_wgsl!(
+            HyperbolicTangent => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+                "../shaders/activation_functions/hyperbolic_tangent.wgsl"
+            )),
+            Softmax => gpu_math.create_custom_matrix_in_place_pipeline(include_wgsl!(
                 "../shaders/activation_functions/softmax.wgsl"
             )),
             Custom => {
