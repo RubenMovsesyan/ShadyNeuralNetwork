@@ -1,3 +1,4 @@
+use gpu_math::GpuMath;
 use shady_neural_net::{
     create_training_batches_from_csv,
     layers::{activation_function::ActivationFunction, loss_function::LossFunction},
@@ -6,6 +7,7 @@ use shady_neural_net::{
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let gpu_math = GpuMath::new();
 
     let inputs_size = args[6]
         .parse()
@@ -28,11 +30,12 @@ fn main() {
     );
 
     let (inputs, outputs) = create_training_batches_from_csv(
+        &gpu_math,
         &args[1],                          // csv path
         &args[2],                          // labels header
         args[3].clone()..=args[4].clone(), // data headers
         data_normalization_value,
-        inputs_size,
+        inputs_size as usize,
         batch_size,
         None,
     )
@@ -40,16 +43,16 @@ fn main() {
 
     for (input, output) in inputs.into_iter().zip(outputs.into_iter()) {
         shady_neural_net.add_input_batch(input);
-        shady_neural_net.add_label_batch(output);
+        _ = shady_neural_net.add_label_batch(output);
     }
 
-    shady_neural_net.add_layer(10, ActivationFunction::ReLU);
-    shady_neural_net.add_layer(10, ActivationFunction::Softmax);
+    _ = shady_neural_net.add_layer(10, ActivationFunction::ReLU);
+    _ = shady_neural_net.add_layer(10, ActivationFunction::Softmax);
 
     match shady_neural_net.gradient_descent(1000) {
         Ok(_) => {}
         Err(err) => println!("{:#?}", err),
     }
 
-    _ = save_network(&shady_neural_net, "test_files/nn.json");
+    _ = save_network(&mut shady_neural_net, "test_files/nn.json");
 }
