@@ -1,7 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
 use gpu_math::math::matrix::Matrix;
-use wgpu::{Device, Queue};
 
 use super::MatrixRef;
 
@@ -11,9 +10,9 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new(input_matrix: Matrix, device: Rc<Device>, queue: Rc<Queue>) -> Self {
+    pub fn new(input_matrix: Matrix) -> Self {
         Self {
-            inputs_matrix: { Rc::new(RefCell::new(input_matrix.buf(device, queue))) },
+            inputs_matrix: { Rc::new(RefCell::new(input_matrix)) },
         }
     }
 
