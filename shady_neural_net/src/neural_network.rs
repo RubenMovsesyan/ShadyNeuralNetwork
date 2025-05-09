@@ -2,16 +2,11 @@ use std::{
     error::Error,
     fs::File,
     io::{Write, stdout},
-    rc::Rc,
 };
 
+use anyhow::Result;
 use gpu_math::{GpuMath, math::matrix::Matrix};
-use pollster::FutureExt;
 use serde::{Deserialize, Serialize};
-use wgpu::{
-    Backends, Device, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits,
-    PowerPreference, Queue, RequestAdapterOptions,
-};
 
 use crate::layers::{
     activation_function::ActivationFunction, input::Input, layer::Layer,
@@ -33,8 +28,8 @@ pub struct NeuralNetwork {
     layers: Vec<Layer>,
     expected: Vec<Output>,
 
-    num_inputs: usize,
-    batch_size: usize,
+    num_inputs: u32,
+    batch_size: u32,
 
     loss_function: LossFunction,
 
@@ -46,8 +41,8 @@ pub struct NeuralNetwork {
 
 impl NeuralNetwork {
     pub fn new(
-        num_inputs: usize,
-        batch_size: usize,
+        num_inputs: u32,
+        batch_size: u32,
         loss_function: LossFunction,
         learning_rate: f32,
         max_buffer_size: Option<u32>,
@@ -66,7 +61,7 @@ impl NeuralNetwork {
         }
     }
 
-    pub fn set_from_network_descriptor(&mut self, descriptor: NetworkDescriptor) {
+    pub fn set_from_network_descriptor(&mut self, descriptor: NetworkDescriptor) -> Result<()> {
         let mut link = match self.inputs.first() {
             Some(input_layer) => input_layer.get_inputs(),
             None => panic!("Input Layer has not been added yet"),
@@ -79,17 +74,22 @@ impl NeuralNetwork {
                 layer_descriptor,
                 self.batch_size,
                 link,
-                self.device.clone(),
-                self.queue.clone(),
-            ));
+                &mut self.gpu_math,
+            )?);
 
             unsafe {
                 link = self.layers.last().unwrap_unchecked().output_link();
             }
         }
+
+        Ok(())
     }
 
-    pub fn add_layer(&mut self, num_nodes: usize, activation_function: ActivationFunction) {
+    pub fn add_layer(
+        &mut self,
+        num_nodes: u32,
+        activation_function: ActivationFunction,
+    ) -> Result<()> {
         let link = match self.layers.last() {
             Some(prev_layer) => prev_layer.output_link(),
             None => self
@@ -109,26 +109,24 @@ impl NeuralNetwork {
             link,
             self.batch_size,
             activation_function,
-            self.device.clone(),
-            self.queue.clone(),
-        ));
+            &mut self.gpu_math,
+        )?);
+
+        Ok(())
     }
 
     pub fn add_input_batch(&mut self, input_batch: Matrix) {
-        self.inputs.push(Input::new(
-            input_batch,
-            self.device.clone(),
-            self.queue.clone(),
-        ));
+        self.inputs.push(Input::new(input_batch));
     }
 
-    pub fn add_label_batch(&mut self, label_batch: Matrix) {
+    pub fn add_label_batch(&mut self, label_batch: Matrix) -> Result<()> {
         self.expected.push(Output::new(
             label_batch,
             self.loss_function,
-            self.device.clone(),
-            self.queue.clone(),
-        ));
+            &mut self.gpu_math,
+        )?);
+
+        Ok(())
     }
 
     pub fn feed_forward(&mut self, batch_number: usize) -> Result<(), Box<dyn Error>> {
@@ -187,10 +185,10 @@ impl NeuralNetwork {
         Ok(())
     }
 
-    pub fn get_model_descriptor(&self) -> NetworkDescriptor {
+    pub fn get_model_descriptor(&mut self) -> NetworkDescriptor {
         let layer_descriptors = self
             .layers
-            .iter()
+            .iter_mut()
             .map(|layer| layer.save_parameters().expect("Failed to Save parameters"))
             .collect::<Vec<Parameters>>();
 
@@ -218,7 +216,7 @@ fn print_progress(progress: usize, total: usize) {
     _ = stdout().flush();
 }
 
-pub fn save_network(neural_network: &NeuralNetwork, file_path: &str) -> std::io::Result<()> {
+pub fn save_network(neural_network: &mut NeuralNetwork, file_path: &str) -> std::io::Result<()> {
     let serialized = neural_network.get_model_descriptor();
 
     let mut file = File::create(file_path)?;
