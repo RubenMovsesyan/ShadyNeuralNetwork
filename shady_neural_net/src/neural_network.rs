@@ -13,9 +13,15 @@ use crate::layers::{
     loss_function::LossFunction, output::Output,
 };
 
+<<<<<<< HEAD
 //                  weights    biases   activation function    inputs   outputs
 //                      \/        \/        \/                  \/      \/
 pub type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, u32, u32);
+=======
+//              weights    biases   activation function    inputs   outputs
+//                  \/        \/        \/                  \/      \/
+pub type Parameters = (Vec<f32>, Vec<f32>, ActivationFunction, usize, usize);
+>>>>>>> parent of ef64d2f (fixed some comments)
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NetworkDescriptor {
