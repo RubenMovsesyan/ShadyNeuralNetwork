@@ -119,6 +119,10 @@ where
     //         }
     //     }
     // }
+
+    println!("Image Train Rows: {}", image_train.len());
+    println!("Image Train Cols: {}", image_train[0].len());
+
     for batch_index in 0..batches {
         training_data_inputs.push(Matrix::new(
             gpu_math,
@@ -129,7 +133,11 @@ where
                     .map(|b| {
                         let i = b as usize / data_size;
                         let j = b as usize % data_size;
-                        image_train[batch_size as usize * batch_index as usize + j][i]
+
+                        let index = batch_size as usize * batch_index as usize + j;
+                        let jndex = i;
+
+                        image_train[jndex][index]
                     })
                     .collect::<Vec<_>>()
             }),

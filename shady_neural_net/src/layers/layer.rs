@@ -127,7 +127,7 @@ impl Layer {
             BipolarSigmoid(_) => gpu_math.create_custom_matrix_scalar_in_place_pipeline(
                 include_str!("../shaders/activation_function_gradients/d_bipolar_sigmoid.wgsl"),
             ),
-            ReLU => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+            ReLU => gpu_math.create_custom_matrix_pipeline(include_str!(
                 "../shaders/activation_function_gradients/d_relu.wgsl"
             )),
             LeakyReLU(_) => gpu_math.create_custom_matrix_scalar_in_place_pipeline(include_str!(
@@ -136,13 +136,15 @@ impl Layer {
             HyperbolicTangent => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
                 "../shaders/activation_function_gradients/d_hyperbolic_tangent.wgsl"
             )),
-            Softmax => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+            Softmax => gpu_math.create_custom_matrix_matrix_pipeline(include_str!(
                 "../shaders/activation_function_gradients/d_softmax.wgsl"
             )),
             Custom => {
                 todo!()
             }
         };
+
+        println!("{:#?}", activation_function);
 
         Ok(Self {
             weights,
@@ -242,7 +244,7 @@ impl Layer {
             BipolarSigmoid(_) => gpu_math.create_custom_matrix_scalar_in_place_pipeline(
                 include_str!("../shaders/activation_function_gradients/d_bipolar_sigmoid.wgsl"),
             ),
-            ReLU => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+            ReLU => gpu_math.create_custom_matrix_pipeline(include_str!(
                 "../shaders/activation_function_gradients/d_relu.wgsl"
             )),
             LeakyReLU(_) => gpu_math.create_custom_matrix_scalar_in_place_pipeline(include_str!(
@@ -251,7 +253,7 @@ impl Layer {
             HyperbolicTangent => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
                 "../shaders/activation_function_gradients/d_hyperbolic_tangent.wgsl"
             )),
-            Softmax => gpu_math.create_custom_matrix_in_place_pipeline(include_str!(
+            Softmax => gpu_math.create_custom_matrix_matrix_pipeline(include_str!(
                 "../shaders/activation_function_gradients/d_softmax.wgsl"
             )),
             Custom => {

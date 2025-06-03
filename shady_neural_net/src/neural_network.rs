@@ -135,7 +135,9 @@ impl NeuralNetwork {
             None => panic!(),
         }
 
+        println!("len: {}", self.layers.len());
         for layer in self.layers.iter_mut() {
+            println!("Feed Forward");
             layer.feed_forward()?;
         }
 
@@ -151,6 +153,7 @@ impl NeuralNetwork {
         let mut next_layer = self.expected[batch_number]
             .get_loss_gradient(&self.layers.last().unwrap().output_link().borrow())?;
         for layer in self.layers.iter_mut().rev() {
+            println!("set");
             next_layer = layer.back_propogate(next_layer)?;
         }
 
@@ -176,9 +179,13 @@ impl NeuralNetwork {
             }
 
             for batch_number in 0..self.num_batches() {
+                println!("ff");
                 self.feed_forward(batch_number)?;
+                println!("bp");
                 self.back_propogate(batch_number)?;
+                println!("up");
                 self.update_parameters()?;
+                println!("done");
             }
         }
 

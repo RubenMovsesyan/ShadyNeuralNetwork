@@ -53,12 +53,14 @@ impl Output {
         //     self.loss_function_gradient_index,
         //     &mut self.loss_function_gradient,
         // )?;
+        println!("gy");
         Matrix::run_custom_matrix_matrix(
             &self.expected_matrix,
             predicted,
             &self.loss_function_gradient,
             self.loss_function_gradient_index,
         )?;
+        println!("ui");
 
         Ok(&self.loss_function_gradient)
     }

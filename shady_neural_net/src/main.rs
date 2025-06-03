@@ -11,15 +11,15 @@ fn main() {
 
     let inputs_size = args[6]
         .parse()
-        .expect(format!("Failed to parse arg: {:#?}", args[5]).as_str());
+        .expect(format!("Failed to parse arg: {:#?}", args[6]).as_str());
 
     let batch_size = args[7]
         .parse()
-        .expect(format!("Failed to parse arg: {:#?}", args[6]).as_str());
+        .expect(format!("Failed to parse arg: {:#?}", args[7]).as_str());
 
     let data_normalization_value = args[5]
         .parse()
-        .expect(format!("Failed to parse arg: {:#?}", args[4]).as_str());
+        .expect(format!("Failed to parse arg: {:#?}", args[5]).as_str());
 
     let mut shady_neural_net = NeuralNetwork::new(
         inputs_size,
